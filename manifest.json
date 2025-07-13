@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "FolderTube",
+  "version": "1.0.0",
+  "description": "Organize YouTube subscriptions into folders",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://*.youtube.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://*.youtube.com/*"],
+      "js": ["content.js"],
+      "css": ["assets/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/*"],
+      "matches": ["https://*.youtube.com/*"]
+    }
+  ]
+}
