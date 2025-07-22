@@ -14,7 +14,13 @@
       "Bash(cp:*)",
       "Bash(ls:*)",
       "Bash(cat:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(npm run:*)",
+      "Bash(npx tsc:*)",
+      "Bash(cd:*)",
+      "Bash(cd:*)",
+      "Bash(tsc:*)",
+      "Bash(touch:*)"
     ],
     "deny": []
   }

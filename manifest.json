@@ -4,16 +4,32 @@
   "version": "1.0.0",
   "description": "Organize YouTube subscriptions into folders",
   "permissions": [
-    "storage"
+    "storage",
+    "identity"
   ],
+  "oauth2": {
+    "client_id": "196828008291-4getkfhmahk1kcp0jt4kk0eal745pgah.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/youtube.readonly"
+    ]
+  },
   "host_permissions": [
-    "https://*.youtube.com/*"
+    "https://*.youtube.com/*",
+    "https://yt3.ggpht.com/*",
+    "https://yt4.ggpht.com/*",
+    "https://yt5.ggpht.com/*",
+    "https://*.googleusercontent.com/*"
   ],
   "content_scripts": [
     {
       "matches": ["https://*.youtube.com/*"],
-      "js": ["content.js"],
-      "css": ["assets/content.css"],
+      "js": ["src/content-header.tsx"],
+      "css": ["src/content.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.youtube.com/*"],
+      "js": ["src/content-sidebar.tsx"],
       "run_at": "document_idle"
     }
   ],
