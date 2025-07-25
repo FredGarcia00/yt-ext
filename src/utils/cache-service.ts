@@ -12,16 +12,18 @@ export interface CachedChannelData {
   videos: VideoData[];
   cachedAt: number;
   expiresAt: number;
+  lastVideoPublished?: string; // Track the latest video's publish date
+  refreshPriority?: number; // Higher priority channels get refreshed more often
 }
 
 export class CacheService {
   private static CACHE_PREFIX = 'yt_cache_';
-  private static CACHE_DURATION = 48 * 60 * 60 * 1000; // 48 hours (extended for API limits)
+  private static CACHE_DURATION = 6 * 60 * 60 * 1000; // 6 hours
   private static EMERGENCY_CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days for quota issues
   private static MAX_VIDEOS_PER_CHANNEL = 4; // Increased to match UI
   private static PRIORITY_CACHE_PREFIX = 'yt_priority_';
   
-  static async getCachedVideos(channelId: string): Promise<VideoData[] | null> {
+  static async getCachedVideos(channelId: string, allowExpired: boolean = false): Promise<VideoData[] | null> {
     const key = `${this.CACHE_PREFIX}${channelId}`;
     const result = await chrome.storage.local.get(key);
     
@@ -32,9 +34,18 @@ export class CacheService {
     const cached: CachedChannelData = result[key];
     const now = Date.now();
     
-    if (now > cached.expiresAt) {
+    // Check if we're in emergency mode (quota exceeded)
+    const storage = await chrome.storage.local.get(['quotaExceeded']);
+    const inEmergencyMode = storage.quotaExceeded;
+    
+    if (now > cached.expiresAt && !allowExpired && !inEmergencyMode) {
       await this.clearChannelCache(channelId);
       return null;
+    }
+    
+    // In emergency mode or when explicitly allowing expired cache, return even expired videos
+    if (inEmergencyMode || allowExpired) {
+      return cached.videos;
     }
     
     return cached.videos;
@@ -44,17 +55,40 @@ export class CacheService {
     const now = Date.now();
     let cacheDuration = this.CACHE_DURATION;
     
+    // Calculate refresh priority based on upload frequency
+    let refreshPriority = 1;
+    if (videos.length > 0) {
+      const latestVideo = videos[0];
+      const daysSinceUpload = (now - new Date(latestVideo.publishedAt).getTime()) / (1000 * 60 * 60 * 24);
+      
+      if (daysSinceUpload < 1) {
+        refreshPriority = 10; // Very active channel, check frequently
+        cacheDuration = 1 * 60 * 60 * 1000; // 1 hour cache
+      } else if (daysSinceUpload < 7) {
+        refreshPriority = 5; // Active channel
+        cacheDuration = 3 * 60 * 60 * 1000; // 3 hours cache
+      } else if (daysSinceUpload < 30) {
+        refreshPriority = 2; // Semi-active channel
+        cacheDuration = 12 * 60 * 60 * 1000; // 12 hours cache
+      } else {
+        refreshPriority = 1; // Inactive channel
+        cacheDuration = 24 * 60 * 60 * 1000; // 24 hours cache
+      }
+    }
+    
     if (isEmergencyCache) {
       cacheDuration = this.EMERGENCY_CACHE_DURATION; // 7 days for quota issues
     } else if (isPriority) {
-      cacheDuration = this.CACHE_DURATION * 2; // Priority items cached longer
+      cacheDuration = Math.min(cacheDuration, this.CACHE_DURATION); // Don't extend cache for priority items
     }
     
     const cachedData: CachedChannelData = {
       channelId,
       videos: videos.slice(0, this.MAX_VIDEOS_PER_CHANNEL),
       cachedAt: now,
-      expiresAt: now + cacheDuration
+      expiresAt: now + cacheDuration,
+      lastVideoPublished: videos.length > 0 ? videos[0].publishedAt : undefined,
+      refreshPriority
     };
     
     const key = `${this.CACHE_PREFIX}${channelId}`;
@@ -100,6 +134,38 @@ export class CacheService {
     if (keysToRemove.length > 0) {
       await chrome.storage.local.remove(keysToRemove);
     }
+  }
+  
+  static async getChannelsNeedingRefresh(limit: number = 5): Promise<string[]> {
+    const result = await chrome.storage.local.get(null);
+    const now = Date.now();
+    const channelsToRefresh: Array<{channelId: string, priority: number, expired: boolean}> = [];
+    
+    for (const key in result) {
+      if (key.startsWith(this.CACHE_PREFIX)) {
+        const cached: CachedChannelData = result[key];
+        const isExpired = now > cached.expiresAt;
+        
+        // Include if expired or high priority
+        if (isExpired || (cached.refreshPriority && cached.refreshPriority >= 5)) {
+          channelsToRefresh.push({
+            channelId: cached.channelId,
+            priority: cached.refreshPriority || 1,
+            expired: isExpired
+          });
+        }
+      }
+    }
+    
+    // Sort by priority (expired first, then by priority)
+    channelsToRefresh.sort((a, b) => {
+      if (a.expired && !b.expired) return -1;
+      if (!a.expired && b.expired) return 1;
+      return b.priority - a.priority;
+    });
+    
+    // Return only the channel IDs, limited to prevent quota issues
+    return channelsToRefresh.slice(0, limit).map(c => c.channelId);
   }
   
   static async clearExpiredCache(): Promise<void> {

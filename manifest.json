@@ -5,8 +5,12 @@
   "description": "Organize YouTube subscriptions into folders",
   "permissions": [
     "storage",
-    "identity"
+    "identity",
+    "alarms"
   ],
+  "background": {
+    "service_worker": "src/background.ts"
+  },
   "oauth2": {
     "client_id": "196828008291-4getkfhmahk1kcp0jt4kk0eal745pgah.apps.googleusercontent.com",
     "scopes": [
@@ -24,7 +28,6 @@
     {
       "matches": ["https://*.youtube.com/*"],
       "js": ["src/content-header.tsx"],
-      "css": ["src/content.css"],
       "run_at": "document_idle"
     },
     {

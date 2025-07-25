@@ -95,7 +95,7 @@ const FolderPreview: React.FC<FolderPreviewProps> = ({
   const [channelVideos, setChannelVideos] = useState<Map<string, VideoData[]>>(new Map());
   const [loadingChannels, setLoadingChannels] = useState<Set<string>>(new Set());
   const [errorChannels, setErrorChannels] = useState<Map<string, string>>(new Map());
-  const [isPremium] = useState(true); // Set to true to enable video loading
+  const [isPremium] = useState(false); // Disable automatic API calls to conserve quota
   const [isEditingName, setIsEditingName] = useState(false);
   const [editingName, setEditingName] = useState(folderName);
 
@@ -1017,27 +1017,6 @@ const FolderPreview: React.FC<FolderPreviewProps> = ({
                               {errorChannels.get(channel.id)}
                             </div>
                           </div>
-                          <button
-                            onClick={() => {
-                              setErrorChannels(prev => {
-                                const newMap = new Map(prev);
-                                newMap.delete(channel.id);
-                                return newMap;
-                              });
-                              loadChannelVideos();
-                            }}
-                            style={{
-                              background: '#c53030',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '4px',
-                              padding: '4px 8px',
-                              cursor: 'pointer',
-                              fontSize: '12px'
-                            }}
-                          >
-                            Retry
-                          </button>
                         </div>
                       );
                     } else {
@@ -1317,27 +1296,6 @@ const FolderPreview: React.FC<FolderPreviewProps> = ({
                                 {errorChannels.get(channelId)}
                               </div>
                             </div>
-                            <button
-                              onClick={() => {
-                                setErrorChannels(prev => {
-                                  const newMap = new Map(prev);
-                                  newMap.delete(channelId);
-                                  return newMap;
-                                });
-                                loadChannelVideos();
-                              }}
-                              style={{
-                                background: '#c53030',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '4px',
-                                padding: '4px 8px',
-                                cursor: 'pointer',
-                                fontSize: '12px'
-                              }}
-                            >
-                              Retry
-                            </button>
                           </div>
                         );
                       } else {

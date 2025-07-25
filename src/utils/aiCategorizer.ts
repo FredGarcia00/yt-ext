@@ -18,6 +18,15 @@ export interface ChannelMetadata {
 }
 
 export const ENHANCED_CATEGORIES: Category[] = [
+  // Podcasts & Talk Shows
+  {
+    id: 'podcasts',
+    name: 'Podcasts 🎙️',
+    keywords: ['podcast', 'episode', 'interview', 'discussion', 'talk', 'conversation', 'guest', 'hosted', 'show'],
+    topicIds: [],
+    icon: '🎙️'
+  },
+  
   // Home & Garden
   {
     id: 'lawn_care',
@@ -82,7 +91,7 @@ export const ENHANCED_CATEGORIES: Category[] = [
     icon: '🎮'
   },
 
-  // Cooking Specific  
+  // Cooking & Food 
   {
     id: 'baking',
     name: 'Baking & Desserts 🍰',
@@ -99,7 +108,7 @@ export const ENHANCED_CATEGORIES: Category[] = [
   },
   {
     id: 'cooking',
-    name: 'Cooking & Recipes 🍳',
+    name: 'Cooking & Food 🍳',
     keywords: ['cooking', 'recipe', 'kitchen', 'cook', 'chef', 'meal', 'dish', 'food', 'culinary'],
     topicIds: ['/m/02wbm', '/m/01z1m6x'],
     icon: '🍳'
@@ -133,14 +142,14 @@ export const ENHANCED_CATEGORIES: Category[] = [
   // Health & Fitness
   {
     id: 'fitness',
-    name: 'Fitness & Workouts 💪',
+    name: 'Fitness & Health 💪',
     keywords: ['fitness', 'workout', 'exercise', 'gym', 'training', 'bodybuilding', 'muscle', 'strength', 'cardio', 'weight'],
     topicIds: ['/m/0kt51'],
     icon: '💪'
   },
   {
     id: 'nutrition',
-    name: 'Nutrition & Health 🥗',
+    name: 'Nutrition & Wellness 🥗',
     keywords: ['nutrition', 'diet', 'healthy', 'wellness', 'health', 'vitamins', 'supplements', 'meal prep', 'weight loss'],
     topicIds: [],
     icon: '🥗'
@@ -172,10 +181,19 @@ export const ENHANCED_CATEGORIES: Category[] = [
   },
   {
     id: 'finance',
-    name: 'Finance & Investing 💰',
+    name: 'Finance & Business 💰',
     keywords: ['finance', 'investment', 'stock', 'crypto', 'bitcoin', 'money', 'trading', 'wealth', 'passive income', 'real estate', 'market'],
     topicIds: ['/m/09s1f'],
     icon: '💰'
+  },
+  
+  // Anime & Animation
+  {
+    id: 'anime',
+    name: 'Anime & Animation 🎌',
+    keywords: ['anime', 'manga', 'animation', 'cartoon', 'animated', 'japanese', 'otaku', 'weeb', 'studio', 'episode'],
+    topicIds: [],
+    icon: '🎌'
   },
 
   // Lifestyle & Personal
@@ -658,8 +676,8 @@ export class AICategorizer {
       
       // Add missing channels to discoveries to prevent data loss
       if (missingChannels.length > 0) {
-        const existingDiscoveries = validated.get('discoveries') || [];
-        validated.set('discoveries', [...existingDiscoveries, ...missingChannels.map(c => c.id)]);
+        const existingDiscoveries = categorizedChannels.get('discoveries') || [];
+        categorizedChannels.set('discoveries', [...existingDiscoveries, ...missingChannels.map(c => c.id)]);
         console.log(`FolderTube: Added ${missingChannels.length} missing channels to discoveries`);
       }
     }
@@ -713,15 +731,22 @@ export class AICategorizer {
       consolidated.set(categoryId, channelIds);
     }
     
-    // Put remaining channels into "Mixed Content" category
-    const remainingChannels: string[] = [];
+    // For remaining channels, try one more aggressive categorization pass
+    const remainingChannels: ChannelMetadata[] = [];
     for (let i = 12; i < sortedCategories.length; i++) {
-      const [_, channelIds] = sortedCategories[i];
-      remainingChannels.push(...channelIds);
+      const [, channelIds] = sortedCategories[i];
+      const channelData = channelIds.map(id => _allChannels.find(c => c.id === id)!).filter(Boolean);
+      remainingChannels.push(...channelData);
     }
     
     if (remainingChannels.length > 0) {
-      consolidated.set('mixed_content', remainingChannels);
+      // Try ultra-aggressive recategorization for remaining channels
+      const ultraCategories = this.ultraAggressiveRecategorization(remainingChannels);
+      for (const [categoryId, channelIds] of ultraCategories) {
+        if (channelIds.length >= 2) {
+          consolidated.set(categoryId, channelIds);
+        }
+      }
     }
     
     return consolidated;
@@ -1115,53 +1140,21 @@ export class AICategorizer {
   private createFocusedCategories(channels: ChannelMetadata[]): Map<string, string[]> {
     const focusedCategories = new Map<string, string[]>();
     
-    // Only create categories if we have meaningful groupings
-    const groups = new Map<string, ChannelMetadata[]>();
+    // NO MORE LAZY MIXED CONTENT! Apply ultra-aggressive categorization instead
+    console.log(`FolderTube: Applying focused ultra-categorization to ${channels.length} channels (NO MIXED CONTENT!)`);
     
-    // Group by meaningful patterns (require at least 3 channels per group)
-    for (const channel of channels) {
-      const name = channel.name.toLowerCase();
-      let grouped = false;
-      
-      // Language-based grouping
-      const languages = [
-        { key: 'international', patterns: ['español', 'français', 'deutsch', 'русский', 'japanese', '日本', 'korean', '한국'], name: 'Global Voices 🌍' },
-        { key: 'creators', patterns: ['official', 'studios', 'media', 'production', 'entertainment'], name: 'Creators Hub 🎬' },
-      ];
-      
-      for (const lang of languages) {
-        if (lang.patterns.some(p => name.includes(p))) {
-          if (!groups.has(lang.key)) groups.set(lang.key, []);
-          groups.get(lang.key)!.push(channel);
-          grouped = true;
-          break;
-        }
-      }
-      
-      // If still not grouped, put into "Mixed Content"
-      if (!grouped) {
-        if (!groups.has('mixed')) groups.set('mixed', []);
-        groups.get('mixed')!.push(channel);
+    // Use the ultra-aggressive categorization directly
+    const ultraResults = this.ultraAggressiveRecategorization(channels);
+    
+    // Only keep categories with 2+ channels (no single-channel folders)
+    for (const [categoryId, channelIds] of ultraResults) {
+      if (channelIds.length >= 2) {
+        focusedCategories.set(categoryId, channelIds);
+        console.log(`FolderTube: Created focused category "${categoryId}" with ${channelIds.length} channels`);
       }
     }
     
-    // Keep groups with 3+ channels, and put remaining channels into mixed category
-    const remainingChannels: ChannelMetadata[] = [];
-    
-    for (const [key, channelList] of groups) {
-      if (channelList.length >= 3) {
-        focusedCategories.set(key, channelList.map(c => c.id));
-      } else {
-        // Collect channels from small groups
-        remainingChannels.push(...channelList);
-      }
-    }
-    
-    // Ensure no channels are lost by putting remaining ones in mixed category
-    if (remainingChannels.length > 0) {
-      focusedCategories.set('mixed_content', remainingChannels.map(c => c.id));
-    }
-    
+    console.log(`FolderTube: Focused categorization complete. Created ${focusedCategories.size} specific categories (NO mixed content allowed!)`);
     return focusedCategories;
   }
 
@@ -1174,7 +1167,58 @@ export class AICategorizer {
     const standardCategory = this.categories.find(cat => cat.id === id);
     if (standardCategory) return standardCategory;
     
-    // Handle focused smart categories
+    // Handle ultra-specific categories from ultraAggressiveRecategorization
+    const ultraCategoryNames = {
+      'reaction_content': 'Reactions & Commentary 🎬',
+      'shorts_viral': 'Shorts & Viral 📱',
+      'interviews_podcasts': 'Interviews & Podcasts 🎙️',
+      'asmr_relaxation': 'ASMR & Relaxation 🌙',
+      'motivation_selfhelp': 'Motivation & Self Help 💪',
+      'history_documentary': 'History & Documentaries 📚',
+      'animals_pets': 'Animals & Pets 🐾',
+      'kids_family': 'Kids & Family 👨‍👩‍👧‍👦',
+      'art_crafts': 'Art & Crafts 🎨',
+      'mystery_unsolved': 'Mystery & Unsolved 🔍',
+      'product_reviews': 'Product Reviews 📦',
+      'life_stories': 'Life Stories & Experiences 📖',
+      'challenges_experiments': 'Challenges & Experiments 🧪',
+      'language_culture': 'Language & Culture 🌏',
+      'restoration_repair': 'Restoration & Repair 🔧',
+      'street_interviews': 'Street Interviews & Social 🎤',
+      'tips_hacks': 'Tips & Life Hacks 💡',
+      'conspiracy_theories': 'Conspiracy & Theories 👁️'
+    };
+    
+    if (ultraCategoryNames[id as keyof typeof ultraCategoryNames]) {
+      return { 
+        id, 
+        name: ultraCategoryNames[id as keyof typeof ultraCategoryNames], 
+        keywords: [], 
+        topicIds: [] 
+      };
+    }
+    
+    // Handle semantic grouping categories
+    const semanticCategoryNames = {
+      'brands_official': 'Official Brands 🏢',
+      'personal_creators': 'Personal Creators 👤',
+      'tech_channels': 'Tech Channels 💻',
+      'entertainment_channels': 'Entertainment Networks 📺',
+      'learning_channels': 'Learning Channels 🎓',
+      'international_channels': 'International Channels 🌍',
+      'unique_creators': 'Unique Creators ✨'
+    };
+    
+    if (semanticCategoryNames[id as keyof typeof semanticCategoryNames]) {
+      return { 
+        id, 
+        name: semanticCategoryNames[id as keyof typeof semanticCategoryNames], 
+        keywords: [], 
+        topicIds: [] 
+      };
+    }
+    
+    // Handle focused smart categories (legacy support)
     const smartCategoryNames = {
       'international': 'Global Voices 🌍',
       'creators': 'Creators Hub 🎬',
@@ -1299,6 +1343,265 @@ export class AICategorizer {
     }
     
     return bestFormat ? formatPatterns[bestFormat as keyof typeof formatPatterns].category : null;
+  }
+  
+  // Ultra-aggressive recategorization - removes all "mixed content" lazy categorization
+  private ultraAggressiveRecategorization(channels: ChannelMetadata[]): Map<string, string[]> {
+    const results = new Map<string, string[]>();
+    
+    console.log(`FolderTube: Ultra-aggressive recategorization for ${channels.length} channels`);
+    
+    // Define ultra-specific categories for remaining channels
+    const ultraCategories = [
+      {
+        id: 'reaction_content',
+        name: 'Reactions & Commentary 🎬',
+        patterns: ['react', 'reaction', 'reacting', 'commentary', 'respond', 'response', 'thoughts', 'opinion']
+      },
+      {
+        id: 'shorts_viral',
+        name: 'Shorts & Viral 📱', 
+        patterns: ['shorts', 'viral', 'trending', 'tiktok', 'quick', 'fast', 'minute', 'compilation', 'clips']
+      },
+      {
+        id: 'interviews_podcasts',
+        name: 'Interviews & Podcasts 🎙️',
+        patterns: ['interview', 'podcast', 'talk', 'conversation', 'chat', 'discussion', 'guest', 'speaks']
+      },
+      {
+        id: 'asmr_relaxation',
+        name: 'ASMR & Relaxation 🌙',
+        patterns: ['asmr', 'relax', 'sleep', 'calm', 'peaceful', 'meditation', 'soothing', 'quiet']
+      },
+      {
+        id: 'motivation_selfhelp',
+        name: 'Motivation & Self Help 💪',
+        patterns: ['motivation', 'inspire', 'success', 'mindset', 'growth', 'self help', 'improve', 'habits', 'goals']
+      },
+      {
+        id: 'history_documentary',
+        name: 'History & Documentaries 📚',
+        patterns: ['history', 'documentary', 'historical', 'ancient', 'war', 'biography', 'timeline', 'facts']
+      },
+      {
+        id: 'animals_pets',
+        name: 'Animals & Pets 🐾',
+        patterns: ['animal', 'pet', 'dog', 'cat', 'wildlife', 'zoo', 'rescue', 'cute', 'funny animals']
+      },
+      {
+        id: 'kids_family',
+        name: 'Kids & Family 👨‍👩‍👧‍👦',
+        patterns: ['kids', 'family', 'children', 'baby', 'parent', 'toy', 'cartoon', 'animation', 'nursery']
+      },
+      {
+        id: 'art_crafts',
+        name: 'Art & Crafts 🎨',
+        patterns: ['art', 'craft', 'draw', 'paint', 'creative', 'design', 'artist', 'sculpture', 'pottery']
+      },
+      {
+        id: 'mystery_unsolved',
+        name: 'Mystery & Unsolved 🔍',
+        patterns: ['mystery', 'unsolved', 'disappeared', 'missing', 'strange', 'unexplained', 'bizarre', 'creepy']
+      },
+      {
+        id: 'product_reviews',
+        name: 'Product Reviews 📦',
+        patterns: ['review', 'product', 'haul', 'unbox', 'test', 'comparison', 'vs', 'worth it', 'honest']
+      },
+      {
+        id: 'life_stories',
+        name: 'Life Stories & Experiences 📖',
+        patterns: ['story', 'experience', 'life', 'journey', 'personal', 'share', 'real', 'happened', 'truth']
+      },
+      {
+        id: 'challenges_experiments',
+        name: 'Challenges & Experiments 🧪',
+        patterns: ['challenge', 'experiment', 'test', 'try', 'attempt', 'crazy', 'impossible', '24 hour', 'vs']
+      },
+      {
+        id: 'language_culture',
+        name: 'Language & Culture 🌏',
+        patterns: ['language', 'culture', 'tradition', 'country', 'international', 'foreign', 'accent', 'translate']
+      },
+      {
+        id: 'restoration_repair',
+        name: 'Restoration & Repair 🔧',
+        patterns: ['restore', 'repair', 'fix', 'rebuild', 'refurbish', 'vintage', 'old', 'broken', 'before after']
+      },
+      {
+        id: 'street_interviews',
+        name: 'Street Interviews & Social 🎤',
+        patterns: ['street', 'ask', 'people', 'public', 'social', 'opinion', 'random', 'stranger', 'city']
+      },
+      {
+        id: 'tips_hacks',
+        name: 'Tips & Life Hacks 💡',
+        patterns: ['tip', 'hack', 'trick', 'secret', 'helpful', 'useful', 'easy', 'simple', 'quick fix']
+      },
+      {
+        id: 'conspiracy_theories',
+        name: 'Conspiracy & Theories 👁️',
+        patterns: ['conspiracy', 'theory', 'hidden', 'secret', 'government', 'cover up', 'truth', 'expose']
+      }
+    ];
+    
+    // Step 1: Categorize using ultra-specific patterns
+    const uncategorized: ChannelMetadata[] = [];
+    
+    for (const channel of channels) {
+      const name = channel.name.toLowerCase();
+      const description = (channel.description || '').toLowerCase();
+      const fullText = `${name} ${description}`;
+      
+      let categorized = false;
+      let bestMatch = '';
+      let bestScore = 0;
+      
+      // Check each ultra category
+      for (const category of ultraCategories) {
+        let score = 0;
+        
+        for (const pattern of category.patterns) {
+          if (fullText.includes(pattern)) {
+            score += 3; // High confidence for direct matches
+          }
+          
+          // Fuzzy matching for variations
+          if (this.fuzzyMatch(fullText, pattern)) {
+            score += 1;
+          }
+        }
+        
+        if (score > bestScore && score >= 2) {
+          bestScore = score;
+          bestMatch = category.id;
+          categorized = true;
+        }
+      }
+      
+      if (categorized) {
+        if (!results.has(bestMatch)) {
+          results.set(bestMatch, []);
+        }
+        results.get(bestMatch)!.push(channel.id);
+        console.log(`FolderTube: Ultra-categorized "${channel.name}" → ${bestMatch} (score: ${bestScore})`);
+      } else {
+        uncategorized.push(channel);
+      }
+    }
+    
+    // Step 2: For remaining channels, use semantic analysis
+    if (uncategorized.length > 0) {
+      const semanticGroups = this.semanticGrouping(uncategorized);
+      for (const [groupId, channelIds] of semanticGroups) {
+        results.set(groupId, channelIds);
+      }
+    }
+    
+    console.log(`FolderTube: Ultra-aggressive recategorization completed. Created ${results.size} ultra-specific categories.`);
+    return results;
+  }
+  
+  // Semantic grouping based on channel naming patterns and content themes
+  private semanticGrouping(channels: ChannelMetadata[]): Map<string, string[]> {
+    const groups = new Map<string, string[]>();
+    const processed = new Set<string>();
+    
+    // Grouping strategies in order of specificity
+    const groupingStrategies = [
+      // Professional/Brand naming patterns
+      {
+        name: 'brands_official',
+        test: (name: string) => name.includes('official') || name.includes('studios') || name.includes('media') || name.endsWith('tv'),
+        displayName: 'Official Brands 🏢'
+      },
+      
+      // Creator name patterns (first name + last name)
+      {
+        name: 'personal_creators',
+        test: (name: string) => {
+          const words = name.split(' ').filter(w => w.length > 2);
+          return words.length === 2 && words.every(w => /^[A-Za-z]+$/.test(w));
+        },
+        displayName: 'Personal Creators 👤'
+      },
+      
+      // Tech-sounding names
+      {
+        name: 'tech_channels',
+        test: (name: string) => {
+          const techWords = ['tech', 'digital', 'cyber', 'byte', 'bit', 'code', 'dev', 'lab', 'hub'];
+          return techWords.some(word => name.toLowerCase().includes(word));
+        },
+        displayName: 'Tech Channels 💻'
+      },
+      
+      // Entertainment-focused names
+      {
+        name: 'entertainment_channels',
+        test: (name: string) => {
+          const entWords = ['show', 'network', 'tv', 'entertainment', 'comedy', 'fun', 'live'];
+          return entWords.some(word => name.toLowerCase().includes(word));
+        },
+        displayName: 'Entertainment Networks 📺'
+      },
+      
+      // Educational-sounding names
+      {
+        name: 'learning_channels',
+        test: (name: string) => {
+          const eduWords = ['academy', 'school', 'learn', 'education', 'university', 'course', 'tutorial'];
+          return eduWords.some(word => name.toLowerCase().includes(word));
+        },
+        displayName: 'Learning Channels 🎓'
+      },
+      
+      // International/Foreign language channels
+      {
+        name: 'international_channels',
+        test: (name: string) => {
+          const nonEnglishChars = /[^\x00-\x7F]/;
+          const commonNonEnglish = ['español', '中文', '日本', '한국', 'français', 'deutsch', 'русский'];
+          return nonEnglishChars.test(name) || commonNonEnglish.some(word => name.toLowerCase().includes(word));
+        },
+        displayName: 'International Channels 🌍'
+      }
+    ];
+    
+    // Apply grouping strategies
+    for (const strategy of groupingStrategies) {
+      const matchingChannels: string[] = [];
+      
+      for (const channel of channels) {
+        if (!processed.has(channel.id) && strategy.test(channel.name)) {
+          matchingChannels.push(channel.id);
+          processed.add(channel.id);
+        }
+      }
+      
+      if (matchingChannels.length >= 2) {
+        groups.set(strategy.name, matchingChannels);
+        console.log(`FolderTube: Semantic group "${strategy.displayName}" created with ${matchingChannels.length} channels`);
+      }
+    }
+    
+    // For any remaining unprocessed channels, create a "Unique Creators" category
+    const remaining = channels.filter(c => !processed.has(c.id));
+    if (remaining.length >= 2) {
+      groups.set('unique_creators', remaining.map(c => c.id));
+      console.log(`FolderTube: Created "Unique Creators" group with ${remaining.length} channels`);
+    } else if (remaining.length === 1) {
+      // Put single remaining channel into the largest existing group
+      const largestGroup = Array.from(groups.entries()).reduce((max, current) => 
+        current[1].length > max[1].length ? current : max
+      );
+      if (largestGroup) {
+        largestGroup[1].push(remaining[0].id);
+        console.log(`FolderTube: Added remaining channel to "${largestGroup[0]}" group`);
+      }
+    }
+    
+    return groups;
   }
 }
 

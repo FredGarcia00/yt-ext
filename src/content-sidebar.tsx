@@ -1,6 +1,11 @@
 import ReactDOM from 'react-dom/client';
 import './content.css';
+import './content-collections.css';
 import SidebarFolderSection from './components/SidebarFolderSection';
+
+// Export collections functionality for global access
+import * as collectionsModule from './content-collections';
+(window as any).FolderTubeCollections = collectionsModule;
 
 console.log('FolderTube: Sidebar content script loaded');
 

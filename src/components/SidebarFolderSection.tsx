@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { YouTubeScraper, type YouTubeChannel } from '../utils/youtube-scraper';
+import React, { useEffect } from 'react';
+import { YouTubeScraper } from '../utils/youtube-scraper';
 import { CacheService } from '../utils/cache-service';
-import CollectionsModal from './CollectionsModal';
 
 interface Folder {
   id: string;
@@ -10,19 +9,12 @@ interface Folder {
 }
 
 const SidebarFolderSection: React.FC = () => {
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const [channels, setChannels] = useState<YouTubeChannel[]>([]);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
-  const [showCollectionsModal, setShowCollectionsModal] = useState(false);
-
   useEffect(() => {
     const loadData = async () => {
       try {
         // Load folders with smart preloading
         const result = await chrome.storage.local.get(['folders']);
         if (result.folders) {
-          setFolders(result.folders);
-          
           // Smart preload videos for folders
           try {
             const folderChannelIds = result.folders.map((folder: Folder) => folder.channelIds);
@@ -33,8 +25,10 @@ const SidebarFolderSection: React.FC = () => {
         }
 
         // Get current channels  
-        const scrapedChannels = await YouTubeScraper.getSubscriptions();
-        setChannels(scrapedChannels);
+        await YouTubeScraper.getSubscriptions();
+        
+        // Add drag and drop functionality to subscriptions
+        addDragDropToSubscriptions();
         
         // Trigger refresh to add drag functionality to native subscriptions
         window.dispatchEvent(new CustomEvent('foldertube:refresh'));
@@ -45,280 +39,187 @@ const SidebarFolderSection: React.FC = () => {
 
     loadData();
 
-    // Listen for storage changes
-    const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }) => {
-      if (changes.folders) {
-        setFolders(changes.folders.newValue || []);
-      }
+    // Re-add drag functionality when navigation changes
+    const handleRefresh = () => {
+      setTimeout(() => addDragDropToSubscriptions(), 100);
     };
 
-    chrome.storage.onChanged.addListener(handleStorageChange);
-    return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+    window.addEventListener('foldertube:refresh', handleRefresh);
+    return () => window.removeEventListener('foldertube:refresh', handleRefresh);
   }, []);
 
-  const toggleFolderExpansion = (folderId: string) => {
-    setExpandedFolders(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(folderId)) {
-        newSet.delete(folderId);
-      } else {
-        newSet.add(folderId);
+  const addDragDropToSubscriptions = () => {
+    console.log('FolderTube: Starting to add drag functionality to subscriptions');
+    
+    // Use a more aggressive approach - find ALL links that point to channels
+    const allChannelLinks = document.querySelectorAll('a[href*="/@"], a[href*="/channel/"]');
+    console.log(`FolderTube: Found ${allChannelLinks.length} total channel links`);
+    
+    let totalProcessed = 0;
+    const processedChannels = new Set<string>();
+    
+    allChannelLinks.forEach((linkElement) => {
+      // Get the parent container that we'll make draggable
+      const container = linkElement.closest('ytd-guide-entry-renderer') || 
+                       linkElement.closest('[role="listitem"]') ||
+                       linkElement.parentElement;
+      
+      if (!container) return;
+      
+      // Skip if already processed
+      if (container.getAttribute('data-foldertube-draggable') === 'true') return;
+      
+      const href = linkElement.getAttribute('href');
+      let channelId = '';
+      
+      // Extract channel ID
+      if (href?.includes('/@')) {
+        const match = href.match(/\/@([^\/\?]+)/);
+        channelId = match ? match[1] : '';
+      } else if (href?.includes('/channel/')) {
+        const match = href.match(/\/channel\/([^\/\?]+)/);
+        channelId = match ? match[1] : '';
       }
-      return newSet;
+      
+      if (!channelId || processedChannels.has(channelId)) return;
+      
+      // Get channel name from various possible locations
+      const nameSelectors = [
+        '#text',
+        '.yt-formatted-string', 
+        '[role="text"]',
+        '.style-scope.ytd-guide-entry-renderer',
+        'yt-formatted-string'
+      ];
+      
+      let channelName = '';
+      for (const selector of nameSelectors) {
+        const nameElement = container.querySelector(selector);
+        if (nameElement?.textContent?.trim()) {
+          channelName = nameElement.textContent.trim();
+          break;
+        }
+      }
+      
+      // Fallback: extract from link text or title
+      if (!channelName) {
+        channelName = linkElement.textContent?.trim() || 
+                     linkElement.getAttribute('title') || 
+                     channelId;
+      }
+      
+      if (channelName && channelId) {
+        console.log(`FolderTube: Making channel draggable: ${channelName} (${channelId})`);
+        
+        processedChannels.add(channelId);
+        
+        // Store the current drag data globally so we can access it in drop
+        (window as any).foldertubeDragData = null;
+        
+        // Make container draggable
+        (container as HTMLElement).draggable = true;
+        container.setAttribute('data-foldertube-draggable', 'true');
+        container.setAttribute('data-channel-id', channelId);
+        container.setAttribute('data-channel-name', channelName);
+        
+        // Get avatar if available
+        const avatar = container.querySelector('img') as HTMLImageElement;
+        const avatarUrl = avatar?.src || '';
+        container.setAttribute('data-channel-avatar', avatarUrl);
+        
+        // Prevent default link behavior during drag
+        const preventClick = (e: Event) => {
+          if ((container as HTMLElement).getAttribute('data-being-dragged') === 'true') {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        };
+        
+        // Add drag event listeners
+        container.addEventListener('dragstart', (e) => {
+          const dragEvent = e as DragEvent;
+          console.log('FolderTube: Drag started for:', channelName);
+          
+          // Mark as being dragged
+          (container as HTMLElement).setAttribute('data-being-dragged', 'true');
+          
+          if (dragEvent.dataTransfer) {
+            const dragData = {
+              channelId: channelId,
+              channelName: channelName,
+              avatarUrl: avatarUrl,
+              source: 'sidebar'
+            };
+            
+            // Store globally as backup
+            (window as any).foldertubeDragData = dragData;
+            
+            console.log('FolderTube: Setting drag data:', dragData);
+            const jsonData = JSON.stringify(dragData);
+            
+            // Clear any existing data first
+            dragEvent.dataTransfer.clearData();
+            
+            // Set data in multiple formats
+            try {
+              dragEvent.dataTransfer.setData('text/plain', jsonData);
+              dragEvent.dataTransfer.setData('application/json', jsonData);
+              dragEvent.dataTransfer.setData('text/foldertube', jsonData);
+            } catch (error) {
+              console.warn('FolderTube: Error setting drag data:', error);
+            }
+            
+            dragEvent.dataTransfer.effectAllowed = 'move';
+            console.log('FolderTube: Drag data set successfully');
+          }
+          
+          // Visual feedback
+          (container as HTMLElement).style.opacity = '0.5';
+          
+          // Prevent clicks on links during drag
+          linkElement.addEventListener('click', preventClick, {capture: true});
+        });
+        
+        container.addEventListener('dragend', () => {
+          (container as HTMLElement).style.opacity = '1';
+          (container as HTMLElement).removeAttribute('data-being-dragged');
+          
+          // Re-enable clicks
+          linkElement.removeEventListener('click', preventClick, {capture: true});
+          
+          console.log('FolderTube: Drag ended for:', channelName);
+        });
+        
+        // Visual styling
+        (container as HTMLElement).style.cursor = 'grab';
+        (container as HTMLElement).title = `Drag ${channelName} to a folder`;
+        
+        // Add visual indicator
+        const indicator = document.createElement('div');
+        indicator.innerHTML = '⋮⋮';
+        indicator.style.cssText = `
+          position: absolute;
+          right: 4px;
+          top: 50%;
+          transform: translateY(-50%);
+          font-size: 10px;
+          color: #666;
+          opacity: 0.6;
+          pointer-events: none;
+          z-index: 1;
+        `;
+        (container as HTMLElement).style.position = 'relative';
+        container.appendChild(indicator);
+        
+        totalProcessed++;
+      }
     });
+    
+    console.log(`FolderTube: Successfully made ${totalProcessed} channels draggable`);
   };
 
-
-
-  const openCollections = () => {
-    setShowCollectionsModal(true);
-  };
-
-  return (
-    <div style={{ marginTop: '12px' }}>
-      {/* Collections Header */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 24px',
-        height: '36px',
-        marginBottom: '8px'
-      }}>
-        <span style={{
-          fontSize: '14px',
-          fontWeight: '500',
-          color: '#0f0f0f',
-          textTransform: 'uppercase',
-          letterSpacing: '0.5px'
-        }}>
-          Collections
-        </span>
-        <button
-          onClick={openCollections}
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: '4px',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'background-color 0.2s'
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.05)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = 'transparent';
-          }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <path d="M12 5v14M5 12h14" stroke="#0f0f0f" strokeWidth="2" strokeLinecap="round"/>
-          </svg>
-        </button>
-      </div>
-
-      {/* Folders List */}
-      <div style={{ paddingBottom: '8px' }}>
-        {folders.map((folder) => (
-          <div key={folder.id}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                padding: '0 8px 0 24px', // Reduced right padding
-                height: '40px',
-                cursor: 'pointer',
-                position: 'relative',
-                transition: 'background-color 0.1s',
-                minWidth: 0 // Allow container to shrink
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.05)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-              }}
-              onClick={openCollections}
-            >
-              {/* Folder Icon */}
-              <svg 
-                width="24" 
-                height="24" 
-                viewBox="0 0 24 24" 
-                fill="none"
-                style={{ marginRight: '24px', flexShrink: 0 }}
-              >
-                <path 
-                  d="M10 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2h-8l-2-2z" 
-                  fill="#6d28d9"
-                />
-              </svg>
-
-              {/* Folder Name - Fixed width to prevent overlap */}
-              <div style={{
-                flex: 1,
-                display: 'flex',
-                alignItems: 'center',
-                minWidth: 0, // Allow flex item to shrink
-                marginRight: '8px' // Add margin to prevent overlap
-              }}>
-                <span style={{
-                  fontSize: '14px',
-                  color: '#0f0f0f',
-                  fontWeight: '400',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
-                }}>
-                  {folder.name}
-                </span>
-                
-                {/* Channel Count Badge */}
-                <span style={{
-                  fontSize: '12px',
-                  color: '#606060',
-                  backgroundColor: 'rgba(0,0,0,0.05)',
-                  padding: '2px 6px',
-                  borderRadius: '12px',
-                  marginLeft: '8px',
-                  flexShrink: 0 // Prevent badge from shrinking
-                }}>
-                  {folder.channelIds.length}
-                </span>
-              </div>
-
-              {/* Expand/Collapse Arrow */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleFolderExpansion(folder.id);
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '4px',
-                  marginLeft: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: '50%',
-                  transition: 'all 0.2s',
-                  flexShrink: 0,
-                  width: '24px',
-                  height: '24px'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.1)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }}
-              >
-                <svg 
-                  width="16" 
-                  height="16" 
-                  viewBox="0 0 24 24" 
-                  fill="none"
-                  style={{
-                    transform: expandedFolders.has(folder.id) ? 'rotate(90deg)' : 'rotate(0)',
-                    transition: 'transform 0.2s'
-                  }}
-                >
-                  <path 
-                    d="M9 6l6 6-6 6" 
-                    stroke="#606060" 
-                    strokeWidth="2" 
-                    strokeLinecap="round" 
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
-            </div>
-
-            {/* Expanded Channel List */}
-            {expandedFolders.has(folder.id) && (
-              <div style={{ 
-                paddingLeft: '48px',
-                paddingRight: '12px',
-                paddingBottom: '8px'
-              }}>
-                {folder.channelIds.slice(0, 5).map((channelId) => {
-                  const channel = channels.find(c => c.id === channelId);
-                  if (!channel) return null;
-
-                  return (
-                    <a
-                      key={channelId}
-                      href={channel.url || `https://www.youtube.com/channel/${channelId}`}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        padding: '4px 12px',
-                        borderRadius: '8px',
-                        textDecoration: 'none',
-                        color: 'inherit',
-                        transition: 'background-color 0.1s'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.05)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = 'transparent';
-                      }}
-                    >
-                      <img 
-                        src={channel.avatarUrl} 
-                        alt={channel.name}
-                        style={{
-                          width: '24px',
-                          height: '24px',
-                          borderRadius: '50%',
-                          marginRight: '12px'
-                        }}
-                      />
-                      <span style={{
-                        fontSize: '13px',
-                        color: '#0f0f0f',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                      }}>
-                        {channel.name}
-                      </span>
-                    </a>
-                  );
-                })}
-                {folder.channelIds.length > 5 && (
-                  <div style={{
-                    padding: '4px 12px',
-                    fontSize: '12px',
-                    color: '#606060'
-                  }}>
-                    +{folder.channelIds.length - 5} more channels
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Collections Modal */}
-      <CollectionsModal
-        isOpen={showCollectionsModal}
-        onClose={() => setShowCollectionsModal(false)}
-        folders={folders}
-        channels={channels}
-        onRefresh={() => {
-          window.dispatchEvent(new CustomEvent('foldertube:refresh'));
-        }}
-      />
-    </div>
-  );
+  // Return null to remove the collections section from sidebar
+  return null;
 };
 
 export default SidebarFolderSection;

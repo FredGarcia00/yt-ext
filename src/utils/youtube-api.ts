@@ -1,5 +1,6 @@
 import { YouTubeAuth } from './youtube-auth';
 import { CacheService } from './cache-service';
+import { YouTubeFallbackScraper } from './youtube-fallback-scraper';
 import type { VideoData } from './cache-service';
 
 export interface ChannelVideoData {
@@ -31,76 +32,206 @@ export function logApiCall(endpoint: string, units: number = 1): void {
     usage[today] = (usage[today] || 0) + units;
     chrome.storage.local.set({ apiUsage: usage });
   });
+  
+  // Notify background script about API call
+  try {
+    chrome.runtime.sendMessage({ type: 'apiCallMade', units });
+  } catch (error) {
+    // Ignore if background script is not available
+  }
 }
 
 export class YouTubeAPI {
   private static API_BASE = 'https://www.googleapis.com/youtube/v3';
   
+  private static async checkQuotaAvailable(): Promise<boolean> {
+    try {
+      // Check if we're in emergency cache mode
+      const storage = await chrome.storage.local.get(['quotaExceeded', 'quotaResetTime']);
+      if (storage.quotaExceeded && storage.quotaResetTime > Date.now()) {
+        console.warn('FolderTube: In emergency cache mode due to quota exceeded');
+        return false;
+      } else if (storage.quotaExceeded && storage.quotaResetTime <= Date.now()) {
+        // Reset emergency mode
+        await chrome.storage.local.remove(['quotaExceeded', 'quotaResetTime']);
+        console.log('FolderTube: Emergency cache mode reset - quota should be available');
+      }
+      
+      try {
+        const response = await chrome.runtime.sendMessage({ type: 'getApiUsage' });
+        if (response && response.apiCallsToday >= response.maxCalls) {
+          console.warn('FolderTube: Daily API quota reached');
+          return false;
+        }
+        return true;
+      } catch (error) {
+        console.warn('FolderTube: Could not connect to background script, assuming quota is available');
+        return true;
+      }
+    } catch (error) {
+      // If background script is not available, check storage directly
+      const storage = await chrome.storage.local.get(['quotaExceeded', 'quotaResetTime']);
+      return !(storage.quotaExceeded && storage.quotaResetTime > Date.now());
+    }
+  }
+  
   static async fetchChannelMetadata(channelIds: string): Promise<ChannelDetails[]> {
     return this.getChannelDetails(channelIds.split(','));
+  }
+
+  static async searchChannelByName(channelName: string): Promise<any[]> {
+    const token = await YouTubeAuth.getToken();
+    
+    const params = new URLSearchParams({
+      part: 'snippet',
+      type: 'channel',
+      q: channelName,
+      maxResults: '5',  // Get top 5 results
+      fields: 'items(id(channelId),snippet(title,thumbnails))'
+    });
+    
+    if (!token) {
+      const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY;
+      if (!apiKey) {
+        throw new Error('YouTube API key not configured');
+      }
+      params.append('key', apiKey);
+    }
+    
+    const headers: HeadersInit = {
+      'Accept': 'application/json'
+    };
+    
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    const response = await fetch(
+      `${this.API_BASE}/search?${params}`,
+      { headers }
+    );
+    
+    if (!response.ok) {
+      throw new Error(`Channel search failed: ${response.status} ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    const items = data.items || [];
+    
+    return items.map((item: any) => ({
+      id: item.id.channelId,
+      name: item.snippet.title,
+      thumbnails: item.snippet.thumbnails
+    }));
   }
 
   static async getChannelDetails(channelIds: string[]): Promise<ChannelDetails[]> {
     if (!channelIds.length) return [];
     
     const token = await YouTubeAuth.getToken();
-    
-    // Batch API calls (max 50 channels per request)
-    const batchSize = 50;
     const results: ChannelDetails[] = [];
     
-    for (let i = 0; i < channelIds.length; i += batchSize) {
-      const batch = channelIds.slice(i, i + batchSize);
-      const params = new URLSearchParams({
-        part: 'snippet,topicDetails',
-        id: batch.join(','),
-        fields: 'items(id,snippet(title,description,customUrl),topicDetails(topicIds))'
-      });
-      
-      if (!token) {
-        const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY;
-        if (!apiKey) {
-          console.log('FolderTube: No YouTube API key configured');
-          throw new Error('YouTube API key not configured');
-        }
-        params.append('key', apiKey);
+    // Separate UC channel IDs from handles/custom URLs
+    const ucChannelIds = channelIds.filter(id => id.startsWith('UC'));
+    const handleIds = channelIds.filter(id => !id.startsWith('UC'));
+    
+    // Process UC channel IDs in batches (can be batched)
+    if (ucChannelIds.length > 0) {
+      const batchSize = 50;
+      for (let i = 0; i < ucChannelIds.length; i += batchSize) {
+        const batch = ucChannelIds.slice(i, i + batchSize);
+        const params = new URLSearchParams({
+          part: 'snippet,topicDetails',
+          id: batch.join(','),
+          fields: 'items(id,snippet(title,description,customUrl),topicDetails(topicIds))'
+        });
+        
+        const batchResults = await this.fetchChannelDetailsBatch(params, token);
+        results.push(...batchResults);
       }
-      
-      const headers: HeadersInit = {
-        'Accept': 'application/json'
-      };
-      
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-      
+    }
+    
+    // Process handles individually (cannot be batched)
+    for (const handleId of handleIds) {
       try {
-        const response = await fetch(
-          `${this.API_BASE}/channels?${params}`,
-          { headers }
-        );
+        const params = new URLSearchParams({
+          part: 'snippet,topicDetails',
+          forHandle: handleId.startsWith('@') ? handleId : `@${handleId}`,
+          fields: 'items(id,snippet(title,description,customUrl),topicDetails(topicIds))'
+        });
         
-        if (!response.ok) {
-          console.error('Failed to fetch channel details:', response.status);
-          continue;
-        }
-        
-        const data = await response.json();
-        logApiCall('channels.list', 1); // 1 unit per call
-        
-        for (const item of data.items || []) {
-          const topicIds = item.topicDetails?.topicIds || [];
-          results.push({
-            id: item.id,
-            name: item.snippet.title,
-            description: item.snippet.description,
-            topicIds,
-            keywords: this.extractKeywordsFromDescription(item.snippet.description || '')
-          });
-        }
+        const handleResults = await this.fetchChannelDetailsBatch(params, token);
+        results.push(...handleResults);
       } catch (error) {
-        console.error('Error fetching channel details:', error);
+        console.warn(`FolderTube: Failed to get details for handle ${handleId}:`, error);
       }
+    }
+    
+    return results;
+  }
+  
+  private static async fetchChannelDetailsBatch(params: URLSearchParams, token: string | null): Promise<ChannelDetails[]> {
+    const results: ChannelDetails[] = [];
+    
+    if (!token) {
+      const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY;
+      if (!apiKey) {
+        console.log('FolderTube: No YouTube API key configured');
+        throw new Error('YouTube API key not configured');
+      }
+      params.append('key', apiKey);
+      console.log('FolderTube: Using API key for channel details request');
+    }
+    
+    const headers: HeadersInit = {
+      'Accept': 'application/json'
+    };
+    
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    try {
+      const response = await fetch(
+        `${this.API_BASE}/channels?${params}`,
+        { headers }
+      );
+      
+      if (!response.ok) {
+        if (response.status === 403) {
+          const errorText = await response.text();
+          console.error('YouTube API 403 error:', errorText);
+          if (errorText.includes('quotaExceeded')) {
+            console.warn('YouTube API quota exceeded. Extension will use cache-only mode until quota resets.');
+            // Set emergency cache mode for 24 hours
+            await chrome.storage.local.set({ 
+              quotaExceeded: true, 
+              quotaResetTime: Date.now() + (24 * 60 * 60 * 1000) 
+            });
+          } else if (errorText.includes('forbidden')) {
+            console.error('YouTube API access forbidden. Check API key permissions.');
+          }
+        } else {
+          console.error('Failed to fetch channel details:', response.status);
+        }
+        return results; // Return empty results on error
+      }
+      
+      const data = await response.json();
+      logApiCall('channels.list', 1); // 1 unit per call
+      
+      for (const item of data.items || []) {
+        const topicIds = item.topicDetails?.topicIds || [];
+        results.push({
+          id: item.id,
+          name: item.snippet.title,
+          description: item.snippet.description,
+          topicIds,
+          keywords: this.extractKeywordsFromDescription(item.snippet.description || '')
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching channel details:', error);
     }
     
     return results;
@@ -138,6 +269,44 @@ export class YouTubeAPI {
       }
     }
     
+    // Check if we have API quota available
+    const quotaAvailable = await this.checkQuotaAvailable();
+    if (!quotaAvailable) {
+      // Fall back to cached data even if expired
+      const cachedVideos = await CacheService.getCachedVideos(channelId, true); // Allow expired
+      if (cachedVideos && cachedVideos.length > 0) {
+        console.log(`FolderTube: Using expired cache due to quota limit for ${channelName}`);
+        return {
+          channelId,
+          channelName,
+          videos: cachedVideos,
+          fromCache: true
+        };
+      }
+      // Try fallback scraping as last resort
+      console.log(`FolderTube: Attempting fallback scraping for ${channelName}`);
+      const scrapedVideos = YouTubeFallbackScraper.extractVideosFromDOM(channelId);
+      if (scrapedVideos.length > 0) {
+        // Cache the scraped videos with emergency cache duration
+        await CacheService.setCachedVideos(channelId, scrapedVideos, false, true);
+        return {
+          channelId,
+          channelName,
+          videos: scrapedVideos,
+          fromCache: false
+        };
+      }
+      
+      // Return empty result instead of throwing error for better UX
+      console.warn(`FolderTube: No data available for ${channelName} - quota exceeded and no cache`);
+      return {
+        channelId,
+        channelName,
+        videos: [],
+        fromCache: true
+      };
+    }
+    
     // Try to fetch fresh videos
     try {
       console.log(`FolderTube: Fetching fresh videos for channel ${channelId} (${channelName})`);
@@ -158,8 +327,14 @@ export class YouTubeAPI {
           fromCache: false
         };
       } else {
-        console.log(`FolderTube: No videos returned for ${channelName}`);
-        throw new Error('No videos found for this channel');
+        console.log(`FolderTube: No videos returned for ${channelName}, returning empty result`);
+        // Don't throw an error, return empty result gracefully
+        return {
+          channelId,
+          channelName,
+          videos: [],
+          fromCache: false
+        };
       }
     } catch (error) {
       console.error(`FolderTube: Failed to fetch videos for ${channelName}:`, error);
@@ -186,51 +361,57 @@ export class YouTubeAPI {
     const token = await YouTubeAuth.getToken();
     console.log(`FolderTube: OAuth token available: ${!!token}`);
     
-    // Handle different channel ID formats with improved logic
-    let searchValue = '';
-    let useUploadsPlaylist = false;
+    // Always try to get proper UC channel ID first for accurate video fetching
+    let resolvedChannelId = channelId;
     
-    if (channelId.startsWith('UC')) {
-      // For proper YouTube channel IDs, use the uploads playlist method (more reliable)
-      useUploadsPlaylist = true;
-      searchValue = 'UU' + channelId.substring(2); // Convert UC to UU for uploads playlist
-    } else {
-      // This might be a handle or custom URL - use search with channelId filter
-      searchValue = channelId;
+    if (!channelId.startsWith('UC')) {
+      console.log(`FolderTube: Resolving non-UC channel ID: ${channelId}`);
+      try {
+        // Try to resolve handle/custom URL to proper UC channel ID
+        const channelDetails = await this.getChannelDetails([channelId]);
+        if (channelDetails.length > 0 && channelDetails[0].id.startsWith('UC')) {
+          resolvedChannelId = channelDetails[0].id;
+          console.log(`FolderTube: Resolved ${channelId} to UC channel ID: ${resolvedChannelId}`);
+        } else {
+          console.warn(`FolderTube: Could not resolve ${channelId} to UC channel ID, using original`);
+        }
+      } catch (error) {
+        console.warn(`FolderTube: Failed to resolve channel ID ${channelId}:`, error);
+      }
     }
     
+    // Now use uploads playlist method for accurate video fetching
+    if (resolvedChannelId.startsWith('UC')) {
+      console.log(`FolderTube: Using uploads playlist method for ${resolvedChannelId}`);
+      const uploadsPlaylistId = 'UU' + resolvedChannelId.substring(2);
+      return this.fetchChannelVideosViaPlaylist(uploadsPlaylistId, resolvedChannelId, token);
+    }
+    
+    // Fallback: if we still don't have a UC channel ID, try handle resolution
+    console.warn(`FolderTube: Could not resolve to UC channel ID, trying handle resolution for: ${channelId}`);
+    if (channelId.startsWith('@')) {
+      return this.fetchChannelVideosViaHandle(channelId, token);
+    }
+    
+    // Last resort: return empty array rather than wrong videos from search
+    console.error(`FolderTube: Cannot fetch videos for channel ${channelId} - unable to resolve to proper channel ID`);
+    return [];
+  }
+  
+  private static async fetchChannelVideosViaPlaylist(playlistId: string, channelId: string, token: string | null): Promise<VideoData[]> {
     const params = new URLSearchParams({
       part: 'snippet',
-      maxResults: '10', // Increased from 4 to 10 for better categorization accuracy
-      fields: useUploadsPlaylist 
-        ? 'items(snippet(title,thumbnails(medium),publishedAt,resourceId(videoId)))'
-        : 'items(id(videoId),snippet(title,thumbnails(medium),publishedAt,channelId))'
+      playlistId: playlistId,
+      maxResults: '10',
+      fields: 'items(snippet(title,thumbnails(medium),publishedAt,resourceId(videoId)))'
     });
     
-    if (useUploadsPlaylist) {
-      params.append('playlistId', searchValue);
-    } else {
-      // For handles, we need to first resolve to channel ID
-      if (searchValue.startsWith('@')) {
-        // This is a handle, we need to resolve it to a channel ID first
-        return this.fetchChannelVideosViaHandle(searchValue, token);
-      } else {
-        // For other non-UC channel IDs, use search fallback
-        return this.fetchChannelVideosViaSearch(searchValue, token);
-      }
-    }
-    
-    // Use API key if no OAuth token available
     if (!token) {
       const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY;
-      console.log(`FolderTube: Using API key: ${apiKey ? 'Available' : 'Missing'}`);
       if (!apiKey) {
-        // Gracefully degrade to cache-only mode when no API key is available
-        console.log('FolderTube: No YouTube API key configured, falling back to cache');
-        throw new Error('YouTube API key not configured. Extension will use cache-only mode.');
+        throw new Error('YouTube API key not configured');
       }
       params.append('key', apiKey);
-      console.log(`FolderTube: API request URL will be: ${this.API_BASE}/${useUploadsPlaylist ? 'playlistItems' : 'search'}?${params}`);
     }
     
     const headers: HeadersInit = {
@@ -241,104 +422,57 @@ export class YouTubeAPI {
       headers['Authorization'] = `Bearer ${token}`;
     }
     
-    const endpoint = useUploadsPlaylist ? 'playlistItems' : 'search';
-    
-    // Create timeout signal compatible with older Chrome versions
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-    
-    const response = await fetch(
-      `${this.API_BASE}/${endpoint}?${params}`,
-      { 
-        headers,
-        signal: controller.signal
-      }
-    ).catch(error => {
-      clearTimeout(timeoutId);
-      console.error(`FolderTube: API request failed for ${endpoint}:`, error);
-      if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-        throw new Error('Request timed out. Please check your internet connection and try again.');
-      }
-      if (error.message?.includes('Failed to fetch')) {
-        throw new Error('Network error. Please check your internet connection.');
-      }
-      throw new Error(`Network request failed: ${error.message}`);
-    });
-    
-    clearTimeout(timeoutId);
-    
-    if (!response.ok) {
-      if (response.status === 401) {
-        await YouTubeAuth.revokeToken();
-        throw new Error('Authentication expired. Please re-authenticate.');
-      }
+    try {
+      const response = await fetch(
+        `${this.API_BASE}/playlistItems?${params}`,
+        { headers }
+      );
       
-      if (response.status === 403) {
-        const errorText = await response.text();
-        if (errorText.includes('quota') || errorText.includes('exceeded')) {
-          throw new Error('YouTube API quota exceeded. Videos will load from cache when available.');
+      if (!response.ok) {
+        if (response.status === 404) {
+          // Playlist not found, fallback to search
+          return this.fetchChannelVideosViaSearch(channelId, token);
         }
-        throw new Error('Access forbidden. Please check your API permissions.');
+        throw new Error(`Playlist request failed: ${response.status} ${response.statusText}`);
       }
       
-      if (response.status === 429) {
-        throw new Error('Rate limit exceeded. Please wait a moment and try again.');
+      const data = await response.json();
+      logApiCall('playlistItems.list', 1);
+      
+      const videos = (data.items || []).map((item: any) => {
+        const videoId = item.snippet.resourceId.videoId;
+        return {
+          id: videoId,
+          title: item.snippet.title,
+          thumbnail: item.snippet.thumbnails.medium?.url || 
+                    item.snippet.thumbnails.high?.url || 
+                    item.snippet.thumbnails.default?.url || 
+                    `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
+          publishedAt: item.snippet.publishedAt,
+          channelId: channelId
+        };
+      });
+      
+      // Fetch statistics for the videos
+      const videoIds = videos.map((v: VideoData) => v.id).join(',');
+      const stats = await this.fetchVideoStatistics(videoIds, token);
+      if (Object.keys(stats).length > 0) {
+        logApiCall('videos.list', 1);
       }
       
-      // If uploads playlist method fails, fallback to search
-      if (useUploadsPlaylist && response.status === 404) {
-        console.log(`FolderTube: Uploads playlist not found for ${channelId}, falling back to search`);
-        return this.fetchChannelVideosViaSearch(channelId, token);
-      }
+      // Merge statistics with video data
+      const videosWithStats = videos.map((video: VideoData) => ({
+        ...video,
+        viewCount: stats[video.id]?.viewCount
+      }));
       
-      const errorText = await response.text();
-      throw new Error(`API request failed: ${response.status} ${response.statusText} - ${errorText}`);
+      return videosWithStats;
+    } catch (error) {
+      console.error('Error fetching playlist videos:', error);
+      throw error;
     }
-    
-    const data = await response.json();
-    
-    if (!data.items || data.items.length === 0) {
-      // If no items found with current method, try fallback
-      if (useUploadsPlaylist) {
-        console.log(`FolderTube: No videos found via uploads playlist for ${channelId}, trying search fallback`);
-        return this.fetchChannelVideosViaSearch(channelId, token);
-      }
-      return [];
-    }
-    
-    // For search results, filter to ensure videos are from the correct channel
-    const items = data.items || [];
-    const filteredItems = !useUploadsPlaylist && channelId.startsWith('UC')
-      ? items.filter((item: any) => item.snippet.channelId === channelId)
-      : items; // For uploads playlist, all videos are from the channel
-    
-    const videos = filteredItems.map((item: any) => {
-      const videoId = useUploadsPlaylist ? item.snippet.resourceId.videoId : item.id.videoId;
-      return {
-        id: videoId,
-        title: item.snippet.title,
-        thumbnail: item.snippet.thumbnails.medium?.url || 
-                  item.snippet.thumbnails.high?.url || 
-                  item.snippet.thumbnails.default?.url || 
-                  `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
-        publishedAt: item.snippet.publishedAt,
-        channelId: useUploadsPlaylist ? channelId : (item.snippet.channelId || channelId)
-      };
-    });
-    
-    // Fetch statistics for the videos
-    const videoIds = videos.map((v: VideoData) => v.id).join(',');
-    const stats = await this.fetchVideoStatistics(videoIds, token);
-    if (Object.keys(stats).length > 0) {
-      logApiCall('videos.list', 1);
-    }
-    
-    // Merge statistics with video data
-    return videos.map((video: VideoData) => ({
-      ...video,
-      viewCount: stats[video.id]?.viewCount
-    }));
   }
+
   
   private static async fetchChannelVideosViaSearch(channelId: string, token: string | null): Promise<VideoData[]> {
     const params = new URLSearchParams({
@@ -349,14 +483,17 @@ export class YouTubeAPI {
       fields: 'items(id(videoId),snippet(title,thumbnails(medium),publishedAt,channelId,channelTitle))'
     });
     
-    // ONLY use channelId parameter for proper UC channel IDs
+    // Handle different channel ID formats
     if (channelId.startsWith('UC')) {
       params.append('channelId', channelId);
+    } else if (channelId.startsWith('@')) {
+      // For handles, use search query instead of channelId parameter
+      params.append('q', `channel:${channelId}`);
+      console.log(`FolderTube: Using search query for handle: ${channelId}`);
     } else {
-      // For non-UC channels, this method should not be used
-      // Return empty to avoid showing wrong videos
-      console.warn(`FolderTube: Search method called with non-UC channel ID: ${channelId}`);
-      return [];
+      // For other formats, try searching by channel name
+      params.append('q', channelId);
+      console.log(`FolderTube: Using search query for channel name: ${channelId}`);
     }
     
     if (!token) {
@@ -404,14 +541,31 @@ export class YouTubeAPI {
     const data = await response.json();
     const items = data.items || [];
     
-    // Double-check filtering: ALL videos must be from the exact channel
+    // Smart filtering: Handle different channel ID formats
     const filteredItems = items.filter((item: any) => {
       const videoChannelId = item.snippet.channelId;
-      if (videoChannelId !== channelId) {
-        console.warn(`FolderTube: Filtering out video from wrong channel. Expected: ${channelId}, Got: ${videoChannelId}`);
-        return false;
+      
+      // Direct match (same format)
+      if (videoChannelId === channelId) {
+        return true;
       }
-      return true;
+      
+      // If we're searching for a handle (@username) but got UC channel ID,
+      // we can't easily verify without another API call, so we trust the search results
+      if (channelId.startsWith('@') && videoChannelId.startsWith('UC')) {
+        console.log(`FolderTube: Handle search result - trusting API for ${channelId} -> ${videoChannelId}`);
+        return true;
+      }
+      
+      // If we're searching for non-UC ID but got UC channel ID, also trust search results
+      if (!channelId.startsWith('UC') && !channelId.startsWith('@') && videoChannelId.startsWith('UC')) {
+        console.log(`FolderTube: Custom URL search result - trusting API for ${channelId} -> ${videoChannelId}`);
+        return true;
+      }
+      
+      // Only filter out if we're confident it's wrong
+      console.warn(`FolderTube: Filtering out video from wrong channel. Expected: ${channelId}, Got: ${videoChannelId}`);
+      return false;
     });
     
     const videos = filteredItems.map((item: any) => {
@@ -425,91 +579,6 @@ export class YouTubeAPI {
                   `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
         publishedAt: item.snippet.publishedAt,
         channelId: item.snippet.channelId
-      };
-    });
-    
-    // Fetch statistics for the videos
-    const videoIds = videos.map((v: VideoData) => v.id).join(',');
-    const stats = await this.fetchVideoStatistics(videoIds, token);
-    if (Object.keys(stats).length > 0) {
-      logApiCall('videos.list', 1);
-    }
-    
-    // Merge statistics with video data
-    return videos.map((video: VideoData) => ({
-      ...video,
-      viewCount: stats[video.id]?.viewCount
-    }));
-  }
-  
-  private static async fetchChannelVideosViaPlaylist(playlistId: string, channelId: string, token: string | null): Promise<VideoData[]> {
-    const params = new URLSearchParams({
-      part: 'snippet',
-      playlistId: playlistId,
-      maxResults: '10', // Increased from 4 to 10 for better categorization accuracy
-      fields: 'items(snippet(title,thumbnails(medium),publishedAt,resourceId(videoId)))'
-    });
-    
-    if (!token) {
-      const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY;
-      if (!apiKey) {
-        console.log('FolderTube: No YouTube API key configured, falling back to cache');
-        throw new Error('YouTube API key not configured. Extension will use cache-only mode.');
-      }
-      params.append('key', apiKey);
-    }
-    
-    const headers: HeadersInit = {
-      'Accept': 'application/json'
-    };
-    
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-    
-    const response = await fetch(
-      `${this.API_BASE}/playlistItems?${params}`,
-      { 
-        headers,
-        signal: (() => {
-          const controller = new AbortController();
-          setTimeout(() => controller.abort(), 15000);
-          return controller.signal;
-        })()
-      }
-    ).catch(error => {
-      console.error(`FolderTube: Playlist API request failed:`, error);
-      if (error.name === 'TimeoutError') {
-        throw new Error('Request timed out. Please check your internet connection.');
-      }
-      if (error.name === 'AbortError') {
-        throw new Error('Request was cancelled. Please try again.');
-      }
-      throw new Error(`Network request failed: ${error.message}`);
-    });
-    
-    if (!response.ok) {
-      if (response.status === 404) {
-        // Playlist not found, fallback to search
-        return this.fetchChannelVideosViaSearch(channelId, token);
-      }
-      throw new Error(`Playlist request failed: ${response.status} ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    const items = data.items || [];
-    
-    const videos = items.map((item: any) => {
-      const videoId = item.snippet.resourceId.videoId;
-      return {
-        id: videoId,
-        title: item.snippet.title,
-        thumbnail: item.snippet.thumbnails.medium?.url || 
-                  item.snippet.thumbnails.high?.url || 
-                  item.snippet.thumbnails.default?.url || 
-                  `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
-        publishedAt: item.snippet.publishedAt,
-        channelId: channelId
       };
     });
     

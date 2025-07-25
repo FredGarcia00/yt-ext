@@ -81,7 +81,14 @@ export class YouTubeScraper {
           } else if (handleMatch) {
             channelId = '@' + handleMatch[1]; // Preserve @ symbol for handles
           } else {
-            channelId = `channel-${index}`; // Fallback
+            // Try to extract from channel name as a more reliable fallback
+            const channelName = nameElement.textContent?.trim() || '';
+            if (channelName) {
+              // Use a more descriptive identifier that includes the channel name
+              channelId = channelName.replace(/[^a-zA-Z0-9]/g, '');
+            } else {
+              channelId = `channel-${index}`; // Final fallback
+            }
           }
           
           // Simplified avatar extraction - focus on what actually works
