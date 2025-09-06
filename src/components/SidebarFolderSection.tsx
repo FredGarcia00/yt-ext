@@ -1,6 +1,8 @@
 import React, { useEffect } from 'react';
 import { YouTubeScraper } from '../utils/youtube-scraper';
 import { CacheService } from '../utils/cache-service';
+import { SubscriptionService } from '../utils/subscription-service';
+import { AccountMonitor } from '../utils/account-monitor';
 
 interface Folder {
   id: string;
@@ -10,17 +12,34 @@ interface Folder {
 
 const SidebarFolderSection: React.FC = () => {
   useEffect(() => {
-    const loadData = async () => {
+    const checkAndLoad = async () => {
       try {
-        // Load folders with smart preloading
-        const result = await chrome.storage.local.get(['folders']);
-        if (result.folders) {
+        // First verify account session
+        const sessionVerification = await AccountMonitor.verifyAccountSession();
+        
+        if (!sessionVerification.isValid || sessionVerification.needsAuth) {
+          console.log('FolderTube: Invalid session in sidebar - features disabled');
+          return;
+        }
+        
+        // Check subscription
+        const subStatus = await SubscriptionService.checkSubscription();
+        
+        if (!subStatus) {
+          console.log('FolderTube: No subscription, sidebar features disabled');
+          return;
+        }
+        
+        // Only load data if subscribed
+        const storageKey = SubscriptionService.getStorageKey('folders');
+        const result = await chrome.storage.local.get([storageKey]);
+        if (result[storageKey]) {
           // Smart preload videos for folders
           try {
-            const folderChannelIds = result.folders.map((folder: Folder) => folder.channelIds);
+            const folderChannelIds = result[storageKey].map((folder: Folder) => folder.channelIds);
             await CacheService.smartPreload(folderChannelIds);
           } catch (error) {
-            console.log('FolderTube: Smart preload failed:', error);
+            // Smart preload failed, continue
           }
         }
 
@@ -33,11 +52,11 @@ const SidebarFolderSection: React.FC = () => {
         // Trigger refresh to add drag functionality to native subscriptions
         window.dispatchEvent(new CustomEvent('foldertube:refresh'));
       } catch (error) {
-        console.error('FolderTube: Error loading data:', error);
+        console.error('FolderTube: Error in sidebar:', error);
       }
     };
 
-    loadData();
+    checkAndLoad();
 
     // Re-add drag functionality when navigation changes
     const handleRefresh = () => {
@@ -49,11 +68,8 @@ const SidebarFolderSection: React.FC = () => {
   }, []);
 
   const addDragDropToSubscriptions = () => {
-    console.log('FolderTube: Starting to add drag functionality to subscriptions');
-    
     // Use a more aggressive approach - find ALL links that point to channels
     const allChannelLinks = document.querySelectorAll('a[href*="/@"], a[href*="/channel/"]');
-    console.log(`FolderTube: Found ${allChannelLinks.length} total channel links`);
     
     let totalProcessed = 0;
     const processedChannels = new Set<string>();
@@ -109,12 +125,10 @@ const SidebarFolderSection: React.FC = () => {
       }
       
       if (channelName && channelId) {
-        console.log(`FolderTube: Making channel draggable: ${channelName} (${channelId})`);
-        
         processedChannels.add(channelId);
         
-        // Store the current drag data globally so we can access it in drop
-        (window as any).foldertubeDragData = null;
+        // Initialize global drag data (will be populated during dragstart)
+        // Don't clear it here as it might contain data from a previous drag operation
         
         // Make container draggable
         (container as HTMLElement).draggable = true;
@@ -138,7 +152,6 @@ const SidebarFolderSection: React.FC = () => {
         // Add drag event listeners
         container.addEventListener('dragstart', (e) => {
           const dragEvent = e as DragEvent;
-          console.log('FolderTube: Drag started for:', channelName);
           
           // Mark as being dragged
           (container as HTMLElement).setAttribute('data-being-dragged', 'true');
@@ -151,26 +164,45 @@ const SidebarFolderSection: React.FC = () => {
               source: 'sidebar'
             };
             
-            // Store globally as backup
+            // Store globally as backup with additional validation
             (window as any).foldertubeDragData = dragData;
             
-            console.log('FolderTube: Setting drag data:', dragData);
             const jsonData = JSON.stringify(dragData);
             
             // Clear any existing data first
             dragEvent.dataTransfer.clearData();
             
-            // Set data in multiple formats
-            try {
-              dragEvent.dataTransfer.setData('text/plain', jsonData);
-              dragEvent.dataTransfer.setData('application/json', jsonData);
-              dragEvent.dataTransfer.setData('text/foldertube', jsonData);
-            } catch (error) {
-              console.warn('FolderTube: Error setting drag data:', error);
+            // Set data in multiple formats with enhanced error handling
+            let successCount = 0;
+            const formats = [
+              { key: 'text/foldertube', primary: true },
+              { key: 'application/json', primary: false },
+              { key: 'text/plain', primary: false }
+            ];
+            
+            for (const format of formats) {
+              try {
+                dragEvent.dataTransfer.setData(format.key, jsonData);
+                successCount++;
+              } catch (error) {
+                if (format.primary) {
+                  // If primary format fails, also try setting the channel ID as plain text
+                  try {
+                    dragEvent.dataTransfer.setData('text', channelId);
+                  } catch (fallbackError) {
+                    // Fallback also failed
+                  }
+                }
+              }
+            }
+            
+            if (successCount === 0) {
+              console.error('FolderTube: Failed to set drag data in any format, relying on global backup');
             }
             
             dragEvent.dataTransfer.effectAllowed = 'move';
-            console.log('FolderTube: Drag data set successfully');
+          } else {
+            // dataTransfer not available, relying on global backup only
           }
           
           // Visual feedback
@@ -187,7 +219,13 @@ const SidebarFolderSection: React.FC = () => {
           // Re-enable clicks
           linkElement.removeEventListener('click', preventClick, {capture: true});
           
-          console.log('FolderTube: Drag ended for:', channelName);
+          // Clean up global data with a delay to allow drop handler to access it
+          setTimeout(() => {
+            if ((window as any).foldertubeDragData && 
+                (window as any).foldertubeDragData.channelId === channelId) {
+              (window as any).foldertubeDragData = null;
+            }
+          }, 100);
         });
         
         // Visual styling
@@ -215,7 +253,6 @@ const SidebarFolderSection: React.FC = () => {
       }
     });
     
-    console.log(`FolderTube: Successfully made ${totalProcessed} channels draggable`);
   };
 
   // Return null to remove the collections section from sidebar

@@ -5,7 +5,6 @@ let root: ReactDOM.Root | null = null;
 let collectionsContainer: HTMLDivElement | null = null;
 
 export function showCollectionsView() {
-  console.log('FolderTube: Showing collections view');
   
   // Hide YouTube's main content
   const ytMainContent = document.querySelector('ytd-browse, ytd-watch-flexy, ytd-search');
@@ -56,7 +55,6 @@ export function showCollectionsView() {
   // Add active class to body for styling
   document.body.classList.add('yt-collections-active');
   
-  console.log('FolderTube: Collections view rendered');
 }
 
 export function hideCollectionsView() {

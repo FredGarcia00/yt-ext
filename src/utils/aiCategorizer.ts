@@ -17,236 +17,77 @@ export interface ChannelMetadata {
   thumbnail?: string;
 }
 
-export const ENHANCED_CATEGORIES: Category[] = [
-  // Podcasts & Talk Shows
-  {
-    id: 'podcasts',
-    name: 'Podcasts 🎙️',
-    keywords: ['podcast', 'episode', 'interview', 'discussion', 'talk', 'conversation', 'guest', 'hosted', 'show'],
-    topicIds: [],
-    icon: '🎙️'
-  },
+// Enhanced category definitions for sophisticated channel detection
+const CATEGORIES: Category[] = [
+  // Gaming categories - REQUIRE gaming context
+  {id: 'gaming_livestream', name: 'Gaming Livestreams 🎮', keywords: ['gameplay', 'playthrough', 'lets play', 'gaming stream', 'twitch gaming'], topicIds: ['/m/0bzvm2'], icon: '🎮'},
+  {id: 'gaming_reviews', name: 'Gaming Reviews 🎯', keywords: ['game review', 'gameplay review', 'video game', 'gaming tips', 'game guide'], topicIds: ['/m/0bzvm2'], icon: '🎯'},
+  {id: 'gaming_esports', name: 'Esports & Competitive 🏆', keywords: ['esports', 'tournament', 'competitive gaming', 'pro gaming', 'ranked match'], topicIds: ['/m/0bzvm2'], icon: '🏆'},
   
-  // Home & Garden
-  {
-    id: 'lawn_care',
-    name: 'Lawn Care & Landscaping 🌱',
-    keywords: ['lawn', 'grass', 'mow', 'mowing', 'fertilizer', 'weed', 'landscape', 'yard', 'garden', 'turf', 'irrigation', 'sprinkler', 'edging', 'mulch', 'seed', 'sod'],
-    topicIds: [],
-    icon: '🌱'
-  },
-  {
-    id: 'home_improvement',
-    name: 'Home Improvement & DIY 🔨',
-    keywords: ['diy', 'home improvement', 'renovation', 'repair', 'build', 'construction', 'woodworking', 'tools', 'project', 'install', 'fix', 'remodel', 'handyman'],
-    topicIds: ['/m/02lbcm', '/m/01k8wb'],
-    icon: '🔨'
-  },
+  // Entertainment categories
+  {id: 'podcasts', name: 'Podcasts & Talk Shows 🎙️', keywords: ['podcast', 'episode', 'interview', 'discussion', 'talk'], topicIds: ['/m/01k8wb'], icon: '🎙️'},
+  {id: 'horror_paranormal', name: 'Horror & Paranormal 👻', keywords: ['horror', 'scary', 'ghost', 'paranormal', 'haunted', 'creepy'], topicIds: ['/m/03npn'], icon: '👻'},
+  {id: 'true_crime', name: 'True Crime 🔍', keywords: ['crime', 'murder', 'investigation', 'detective', 'case'], topicIds: ['/m/02jjt'], icon: '🔍'},
+  {id: 'comedy_standup', name: 'Comedy & Stand-up 😂', keywords: ['comedy', 'funny', 'humor', 'standup', 'sketch'], topicIds: ['/m/02jjt'], icon: '😂'},
+  {id: 'reaction_commentary', name: 'Reactions & Commentary 💬', keywords: ['reaction', 'reacts', 'commentary', 'response'], topicIds: ['/m/02jjt'], icon: '💬'},
   
-  // Automotive
-  {
-    id: 'car_detailing',
-    name: 'Car Care & Detailing 🚗',
-    keywords: ['car wash', 'detail', 'detailing', 'wax', 'polish', 'ceramic coating', 'paint correction', 'interior cleaning', 'car care', 'auto detailing'],
-    topicIds: [],
-    icon: '🚗'
-  },
-  {
-    id: 'automotive',
-    name: 'Cars & Automotive 🏎️',
-    keywords: ['car', 'cars', 'auto', 'automotive', 'vehicle', 'driving', 'racing', 'motor', 'engine', 'review', 'test drive', 'motorcycle', 'truck', 'restoration'],
-    topicIds: ['/m/0k4j', '/m/012x34', '/m/012f08'],
-    icon: '🏎️'
-  },
-
-  // Entertainment & Media
-  {
-    id: 'paranormal',
-    name: 'Paranormal & Mystery 👻',
-    keywords: ['paranormal', 'ghost', 'haunted', 'supernatural', 'mystery', 'unexplained', 'warren', 'investigation', 'spirit', 'demon', 'psychic', 'occult', 'creepy'],
-    topicIds: [],
-    icon: '👻'
-  },
-  {
-    id: 'true_crime',
-    name: 'True Crime & Investigation 🔍',
-    keywords: ['true crime', 'murder', 'investigation', 'detective', 'criminal', 'case', 'solve', 'mystery', 'forensic', 'police', 'serial killer', 'unsolved'],
-    topicIds: [],
-    icon: '🔍'
-  },
-
-  // Gaming Specific
-  {
-    id: 'gaming_fps',
-    name: 'FPS Gaming 🎯',
-    keywords: ['fps', 'first person shooter', 'call of duty', 'battlefield', 'counter strike', 'valorant', 'apex legends', 'warzone', 'shooter'],
-    topicIds: ['/m/0bzvm2'],
-    icon: '🎯'
-  },
-  {
-    id: 'gaming_general',
-    name: 'Gaming 🎮',
-    keywords: ['gaming', 'gameplay', 'gamer', 'games', 'playthrough', 'walkthrough', 'lets play', 'stream', 'twitch', 'esports', 'speedrun'],
-    topicIds: ['/m/0bzvm2', '/m/025zzc', '/m/02ntfj'],
-    icon: '🎮'
-  },
-
-  // Cooking & Food 
-  {
-    id: 'baking',
-    name: 'Baking & Desserts 🍰',
-    keywords: ['baking', 'cake', 'cookies', 'bread', 'pastry', 'dessert', 'oven', 'recipe', 'flour', 'sugar', 'frosting', 'cupcake'],
-    topicIds: [],
-    icon: '🍰'
-  },
-  {
-    id: 'bbq_grilling',
-    name: 'BBQ & Grilling 🔥',
-    keywords: ['bbq', 'barbecue', 'grill', 'grilling', 'smoke', 'smoker', 'meat', 'ribs', 'brisket', 'steak', 'outdoor cooking'],
-    topicIds: [],
-    icon: '🔥'
-  },
-  {
-    id: 'cooking',
-    name: 'Cooking & Food 🍳',
-    keywords: ['cooking', 'recipe', 'kitchen', 'cook', 'chef', 'meal', 'dish', 'food', 'culinary'],
-    topicIds: ['/m/02wbm', '/m/01z1m6x'],
-    icon: '🍳'
-  },
-
-  // Technology
-  {
-    id: 'tech_reviews',
-    name: 'Tech Reviews & Unboxing 📱',
-    keywords: ['tech review', 'unboxing', 'gadget', 'phone', 'laptop', 'smartphone', 'tablet', 'review', 'test'],
-    topicIds: ['/m/07c1v'],
-    icon: '📱'
-  },
-  {
-    id: 'programming',
-    name: 'Programming & Development 💻',
-    keywords: ['programming', 'coding', 'developer', 'software', 'code', 'python', 'javascript', 'tutorial', 'web development'],
-    topicIds: ['/m/019sc'],
-    icon: '💻'
-  },
-
-  // Education & Learning
-  {
-    id: 'education',
-    name: 'Education & Learning 📚',
-    keywords: ['education', 'learn', 'tutorial', 'course', 'lesson', 'teach', 'explained', 'how to', 'guide', 'lecture', 'academy', 'university', 'school', 'study'],
-    topicIds: ['/m/01k8wb', '/m/0289g'],
-    icon: '📚'
-  },
-
-  // Health & Fitness
-  {
-    id: 'fitness',
-    name: 'Fitness & Health 💪',
-    keywords: ['fitness', 'workout', 'exercise', 'gym', 'training', 'bodybuilding', 'muscle', 'strength', 'cardio', 'weight'],
-    topicIds: ['/m/0kt51'],
-    icon: '💪'
-  },
-  {
-    id: 'nutrition',
-    name: 'Nutrition & Wellness 🥗',
-    keywords: ['nutrition', 'diet', 'healthy', 'wellness', 'health', 'vitamins', 'supplements', 'meal prep', 'weight loss'],
-    topicIds: [],
-    icon: '🥗'
-  },
-
-  // Entertainment
-  {
-    id: 'music',
-    name: 'Music & Artists 🎵',
-    keywords: ['music', 'song', 'songs', 'album', 'artist', 'band', 'concert', 'live', 'cover', 'remix', 'official', 'lyrics', 'producer', 'beat'],
-    topicIds: ['/m/04rlf'],
-    icon: '🎵'
-  },
-  {
-    id: 'comedy',
-    name: 'Comedy & Entertainment 😂',
-    keywords: ['comedy', 'funny', 'humor', 'sketch', 'parody', 'meme', 'reaction', 'challenge', 'prank', 'standup', 'roast', 'compilation'],
-    topicIds: ['/m/02jjt', '/m/09kqc'],
-    icon: '😂'
-  },
-
-  // Business & Finance
-  {
-    id: 'business',
-    name: 'Business & Entrepreneurship 💼',
-    keywords: ['business', 'entrepreneur', 'startup', 'marketing', 'sales', 'strategy', 'leadership', 'management', 'company'],
-    topicIds: [],
-    icon: '💼'
-  },
-  {
-    id: 'finance',
-    name: 'Finance & Business 💰',
-    keywords: ['finance', 'investment', 'stock', 'crypto', 'bitcoin', 'money', 'trading', 'wealth', 'passive income', 'real estate', 'market'],
-    topicIds: ['/m/09s1f'],
-    icon: '💰'
-  },
+  // Music categories
+  {id: 'music_production', name: 'Music Production 🎹', keywords: ['producer', 'beat', 'production', 'studio', 'mixing'], topicIds: ['/m/04rlf'], icon: '🎹'},
+  {id: 'music_covers', name: 'Music Covers 🎸', keywords: ['cover', 'acoustic', 'remix', 'version'], topicIds: ['/m/04rlf'], icon: '🎸'},
+  {id: 'music_official', name: 'Official Artists 🎵', keywords: ['official', 'vevo', 'records', 'label'], topicIds: ['/m/04rlf'], icon: '🎵'},
   
-  // Anime & Animation
-  {
-    id: 'anime',
-    name: 'Anime & Animation 🎌',
-    keywords: ['anime', 'manga', 'animation', 'cartoon', 'animated', 'japanese', 'otaku', 'weeb', 'studio', 'episode'],
-    topicIds: [],
-    icon: '🎌'
-  },
-
-  // Lifestyle & Personal
-  {
-    id: 'fashion',
-    name: 'Fashion & Beauty 💄',
-    keywords: ['fashion', 'style', 'beauty', 'makeup', 'skincare', 'cosmetics', 'haul', 'outfit', 'trends', 'wardrobe'],
-    topicIds: ['/m/032tl', '/m/03glg'],
-    icon: '💄'
-  },
-  {
-    id: 'travel',
-    name: 'Travel & Adventure ✈️',
-    keywords: ['travel', 'adventure', 'explore', 'trip', 'journey', 'destination', 'tourism', 'vacation', 'wanderlust', 'backpacking'],
-    topicIds: ['/m/07bxq'],
-    icon: '✈️'
-  },
-
+  // Educational categories
+  {id: 'science_tech', name: 'Science & Technology 🔬', keywords: ['science', 'experiment', 'research', 'discovery'], topicIds: ['/m/01k8wb'], icon: '🔬'},
+  {id: 'tech_reviews', name: 'Tech Reviews & Unboxing 📦', keywords: ['unboxing', 'review', 'tech', 'gadget', 'device'], topicIds: ['/m/07c1v'], icon: '📦'},
+  {id: 'programming', name: 'Programming & Coding 💻', keywords: ['coding', 'programming', 'developer', 'software', 'code'], topicIds: ['/m/01k8wb'], icon: '💻'},
+  {id: 'tutorials', name: 'Tutorials & How-To 📚', keywords: ['tutorial', 'how to', 'guide', 'learn', 'diy'], topicIds: ['/m/01k8wb'], icon: '📚'},
+  {id: 'documentary', name: 'Documentaries 🎬', keywords: ['documentary', 'history', 'story', 'biography'], topicIds: ['/m/01k8wb'], icon: '🎬'},
+  
+  // Lifestyle categories
+  {id: 'cooking_recipes', name: 'Cooking & Recipes 🍳', keywords: ['cooking', 'recipe', 'chef', 'food', 'kitchen'], topicIds: ['/m/02wbm'], icon: '🍳'},
+  {id: 'baking', name: 'Baking & Desserts 🧁', keywords: ['baking', 'cake', 'dessert', 'pastry', 'cookies'], topicIds: ['/m/02wbm'], icon: '🧁'},
+  {id: 'fitness_workouts', name: 'Fitness & Workouts 💪', keywords: ['workout', 'fitness', 'gym', 'exercise', 'training'], topicIds: ['/m/0kt51'], icon: '💪'},
+  {id: 'yoga_wellness', name: 'Yoga & Wellness 🧘', keywords: ['yoga', 'meditation', 'wellness', 'mindfulness', 'pilates'], topicIds: ['/m/0kt51'], icon: '🧘'},
+  {id: 'beauty_fashion', name: 'Beauty & Fashion 💄', keywords: ['makeup', 'beauty', 'fashion', 'style', 'skincare'], topicIds: ['/m/02jjt'], icon: '💄'},
+  {id: 'travel_adventure', name: 'Travel & Adventure ✈️', keywords: ['travel', 'adventure', 'explore', 'destination', 'trip'], topicIds: ['/m/02jjt'], icon: '✈️'},
+  {id: 'daily_vlogs', name: 'Daily Vlogs 📹', keywords: ['vlog', 'daily', 'life', 'routine', 'day'], topicIds: ['/m/02jjt'], icon: '📹'},
+  
+  // Specialized categories
+  {id: 'automotive_reviews', name: 'Car Reviews 🚗', keywords: ['car review', 'test drive', 'automotive'], topicIds: ['/m/0k4j'], icon: '🚗'},
+  {id: 'automotive_repair', name: 'Car Repair & Mods 🔧', keywords: ['repair', 'mechanic', 'modification', 'restore'], topicIds: ['/m/0k4j'], icon: '🔧'},
+  {id: 'home_improvement', name: 'Home Improvement & DIY 🔨', keywords: ['renovation', 'diy', 'home improvement', 'construction'], topicIds: ['/m/02jjt'], icon: '🔨'},
+  {id: 'gardening', name: 'Gardening & Plants 🌱', keywords: ['garden', 'plant', 'grow', 'flower', 'vegetable'], topicIds: ['/m/02jjt'], icon: '🌱'},
+  {id: 'pets_animals', name: 'Pets & Animals 🐾', keywords: ['pet', 'dog', 'cat', 'animal', 'rescue'], topicIds: ['/m/068hy'], icon: '🐾'},
+  {id: 'asmr', name: 'ASMR & Relaxation 🎧', keywords: ['asmr', 'relax', 'sleep', 'calm', 'whisper'], topicIds: ['/m/02jjt'], icon: '🎧'},
+  {id: 'books_literature', name: 'Books & Literature 📖', keywords: ['book', 'reading', 'literature', 'author', 'review'], topicIds: ['/m/01k8wb'], icon: '📖'},
+  
+  // Professional categories
+  {id: 'business_finance', name: 'Business & Finance 💼', keywords: ['business', 'finance', 'investing', 'stock', 'crypto'], topicIds: ['/m/09s1f'], icon: '💼'},
+  {id: 'real_estate', name: 'Real Estate 🏡', keywords: ['real estate', 'property', 'house', 'investment'], topicIds: ['/m/09s1f'], icon: '🏡'},
+  {id: 'marketing', name: 'Marketing & Growth 📈', keywords: ['marketing', 'seo', 'advertising', 'growth'], topicIds: ['/m/09s1f'], icon: '📈'},
+  
   // News & Information
-  {
-    id: 'news',
-    name: 'News & Current Events 📰',
-    keywords: ['news', 'politics', 'political', 'analysis', 'report', 'journalism', 'current', 'events', 'breaking', 'opinion', 'debate'],
-    topicIds: ['/m/05qt0', '/m/05qjc'],
-    icon: '📰'
-  },
-
-  // Science & Nature
-  {
-    id: 'science',
-    name: 'Science & Nature 🔬',
-    keywords: ['science', 'space', 'physics', 'chemistry', 'biology', 'nature', 'documentary', 'research', 'discovery', 'experiment', 'astronomy', 'wildlife'],
-    topicIds: ['/m/01h7lh', '/m/05qjt'],
-    icon: '🔬'
-  },
-
-  // Sports
-  {
-    id: 'sports',
-    name: 'Sports & Athletics ⚽',
-    keywords: ['sport', 'sports', 'football', 'basketball', 'soccer', 'baseball', 'tennis', 'golf', 'match', 'highlights', 'championship', 'league', 'team', 'athlete'],
-    topicIds: ['/m/06ntj', '/m/0jm_'],
-    icon: '⚽'
-  },
-
-  // General fallbacks
-  {
-    id: 'lifestyle',
-    name: 'Lifestyle & Vlogs 🏠',
-    keywords: ['vlog', 'lifestyle', 'daily', 'life', 'routine', 'day in the life', 'morning', 'organization', 'productivity'],
-    topicIds: ['/m/02jjt'],
-    icon: '🏠'
-  }
+  {id: 'news_politics', name: 'News & Politics 📰', keywords: ['news', 'politics', 'current', 'report', 'analysis'], topicIds: ['/m/05qt0'], icon: '📰'},
+  {id: 'sports', name: 'Sports & Athletics ⚽', keywords: ['sports', 'football', 'basketball', 'soccer', 'athlete'], topicIds: ['/m/06ntj'], icon: '⚽'},
+  
+  // Kids & Family
+  {id: 'kids_content', name: 'Kids & Family 👶', keywords: ['kids', 'children', 'family', 'toy', 'cartoon'], topicIds: ['/m/01k8wb'], icon: '👶'},
+  
+  // NEW UNIVERSAL CATEGORIES
+  {id: 'combat_sports', name: 'Combat Sports & MMA 🥊', keywords: ['ufc', 'mma', 'boxing', 'wrestling', 'fight', 'fighter', 'knockout', 'submission', 'martial arts'], topicIds: ['/m/06ntj'], icon: '🥊'},
+  {id: 'design_creative', name: 'Design & Creative Arts 🎨', keywords: ['design', 'photoshop', 'illustrator', 'graphic design', 'art', 'drawing', 'creative', 'animation', '3d'], topicIds: ['/m/02jjt'], icon: '🎨'},
+  {id: 'crypto_trading', name: 'Crypto & Trading 📊', keywords: ['bitcoin', 'ethereum', 'cryptocurrency', 'trading', 'forex', 'stocks', 'day trading', 'technical analysis'], topicIds: ['/m/09s1f'], icon: '📊'},
+  {id: 'health_medical', name: 'Health & Medical 🏥', keywords: ['health', 'medical', 'doctor', 'medicine', 'disease', 'treatment', 'hospital', 'nursing'], topicIds: ['/m/01k8wb'], icon: '🏥'},
+  {id: 'education_learning', name: 'Education & Learning 🎓', keywords: ['education', 'learning', 'school', 'university', 'course', 'lecture', 'study', 'exam'], topicIds: ['/m/01k8wb'], icon: '🎓'},
+  {id: 'religion_spirituality', name: 'Religion & Spirituality 🙏', keywords: ['religion', 'spiritual', 'church', 'prayer', 'faith', 'god', 'bible', 'worship'], topicIds: ['/m/06bvp'], icon: '🙏'},
+  {id: 'movie_tv_reviews', name: 'Movies & TV Reviews 🎭', keywords: ['movie review', 'film review', 'tv show', 'series review', 'netflix', 'cinema', 'movie reaction'], topicIds: ['/m/02jjt'], icon: '🎭'},
+  {id: 'photography_film', name: 'Photography & Filmmaking 📷', keywords: ['photography', 'camera', 'lens', 'filmmaking', 'cinematography', 'video production', 'editing'], topicIds: ['/m/05wkw'], icon: '📷'},
+  {id: 'language_learning', name: 'Language Learning 🗣️', keywords: ['language', 'spanish', 'french', 'japanese', 'learn language', 'vocabulary', 'grammar', 'pronunciation'], topicIds: ['/m/01k8wb'], icon: '🗣️'},
+  {id: 'history_culture', name: 'History & Culture 🏛️', keywords: ['history', 'historical', 'ancient', 'civilization', 'culture', 'heritage', 'archaeology', 'museum'], topicIds: ['/m/01k8wb'], icon: '🏛️'},
+  {id: 'crafts_diy', name: 'Crafts & DIY Projects 🎨', keywords: ['crafts', 'craft', 'handmade', 'sewing', 'knitting', 'woodworking', 'diy project'], topicIds: ['/m/02jjt'], icon: '✂️'},
+  
+  // International - handled separately in detection logic
+  {id: 'international', name: 'International Content 🌍', keywords: [], topicIds: [], icon: '🌍'}
 ];
 
 export class AICategorizer {
@@ -254,59 +95,139 @@ export class AICategorizer {
   private contextualPatterns!: Map<string, string[]>;
   private channelNamePatterns!: Map<string, string>;
 
-  constructor(categories: Category[] = ENHANCED_CATEGORIES) {
+  constructor(categories: Category[] = CATEGORIES) {
     this.categories = categories;
     this.initializePatterns();
   }
 
   private initializePatterns() {
-    // Contextual patterns that help identify categories from video content
+    // Enhanced contextual patterns for sophisticated category detection
     this.contextualPatterns = new Map([
-      // Lawn Care specific patterns
-      ['lawn_care', ['mow', 'mowing', 'grass', 'lawn', 'fertilizer', 'weed', 'edging', 'trimmer', 'yard', 'turf', 'seed', 'sod', 'mulch', 'irrigation']],
+      // Horror & Paranormal (Ed & Lorraine Warren type channels)
+      ['horror_paranormal', ['ghost', 'haunted', 'supernatural', 'paranormal', 'investigation', 'spirit', 'demon', 'entity', 'evp', 'ouija', 'séance', 'possession', 'warren', 'scary', 'horror', 'creepy', 'spooky', 'poltergeist', 'exorcism', 'curse', 'witch', 'vampire', 'zombie', 'unexplained', 'mystery']],
       
-      // Car Detailing specific
+      // Podcast patterns
+      ['podcasts', ['podcast', 'episode', 'ep.', 'episode #', 'ep #', 'season', 's1', 's2', 'interview', 'guest', 'discussion', 'talk show', 'conversation', 'speaks with', 'talks about', 'deep dive', 'breakdown']],
+      
+      // True Crime
+      ['true_crime', ['true crime', 'murder', 'killer', 'serial killer', 'investigation', 'case', 'unsolved', 'mystery', 'detective', 'forensic', 'evidence', 'suspect', 'victim', 'crime scene', 'cold case', 'disappeared']],
+      
+      // Gaming subcategories - MUST have gaming context
+      ['gaming_livestream', ['gameplay stream', 'gaming live', 'twitch plays', 'game streaming', 'playing live', 'gaming chat']],
+      ['gaming_reviews', ['game review', 'gameplay footage', 'walkthrough', 'lets play', 'playthrough', 'game guide', 'gaming tips', 'video game']],
+      ['gaming_esports', ['esports', 'gaming tournament', 'competitive gaming', 'pro gamer', 'ranked gameplay', 'gaming championship', 'esports league']],
+      
+      // Tech subcategories
+      ['tech_reviews', ['unboxing', 'review', 'specs', 'benchmark', 'performance', 'camera test', 'battery life', 'display', 'comparison', 'vs', 'worth buying', 'hands on', 'first impressions']],
+      ['programming', ['code', 'coding', 'programming', 'developer', 'javascript', 'python', 'react', 'tutorial', 'algorithm', 'software', 'github', 'api', 'framework', 'debug']],
+      
+      // Documentary & Educational
+      ['documentary', ['documentary', 'history', 'biography', 'story of', 'explained', 'the rise of', 'the fall of', 'behind the scenes', 'untold story', 'timeline']],
+      ['science_tech', ['science', 'experiment', 'research', 'discovery', 'physics', 'chemistry', 'biology', 'space', 'nasa', 'quantum', 'theory']],
+      
+      // Lifestyle subcategories
+      ['cooking_recipes', ['recipe', 'cooking', 'ingredients', 'chef', 'kitchen', 'meal', 'dish', 'sauce', 'seasoning', 'gordon ramsay', 'food network']],
+      ['baking', ['baking', 'flour', 'sugar', 'oven', 'bake', 'cake', 'cookies', 'bread', 'yeast', 'frosting', 'pastry', 'dessert', 'sweet']],
+      ['fitness_workouts', ['workout', 'reps', 'sets', 'muscle', 'strength', 'cardio', 'gains', 'protein', 'gym', 'exercise', 'training', 'bodybuilding']],
+      ['yoga_wellness', ['yoga', 'meditation', 'mindfulness', 'wellness', 'pilates', 'breathing', 'relaxation', 'chakra', 'spiritual', 'healing', 'balance']],
+      ['beauty_fashion', ['makeup', 'beauty', 'skincare', 'fashion', 'style', 'outfit', 'haul', 'grwm', 'get ready', 'look', 'trend', 'cosmetics']],
+      
+      // Automotive subcategories
+      ['automotive_reviews', ['car review', 'test drive', 'acceleration', 'handling', 'interior', 'features', 'comparison', 'vs', 'worth buying']],
+      ['automotive_repair', ['repair', 'fix', 'mechanic', 'engine', 'transmission', 'brake', 'oil change', 'diagnostic', 'troubleshoot', 'restoration']],
       ['car_detailing', ['detail', 'detailing', 'wash', 'wax', 'polish', 'ceramic', 'paint correction', 'interior cleaning', 'foam', 'microfiber']],
       
-      // Paranormal specific (for Ed & Lorraine Warren example)
-      ['paranormal', ['ghost', 'haunted', 'supernatural', 'paranormal', 'investigation', 'spirit', 'demon', 'entity', 'evp', 'ouija', 'séance', 'possession']],
+      // Home & Garden
+      ['home_improvement', ['renovation', 'remodel', 'install', 'build', 'construction', 'drywall', 'tile', 'plumbing', 'electrical', 'flooring', 'diy project']],
+      ['gardening', ['garden', 'plant', 'grow', 'harvest', 'vegetable', 'flower', 'landscaping', 'lawn care', 'composting', 'organic', 'greenhouse']],
       
-      // BBQ/Grilling specific
-      ['bbq_grilling', ['bbq', 'grill', 'smoke', 'smoker', 'ribs', 'brisket', 'pulled pork', 'charcoal', 'pellet', 'low and slow']],
+      // Entertainment subcategories
+      ['reaction_commentary', ['reaction', 'reacts to', 'watching', 'commentary', 'response', 'first time', 'never seen', 'reacting']],
+      ['comedy_standup', ['comedy', 'standup', 'stand up', 'comedian', 'funny', 'jokes', 'humor', 'sketch', 'improv', 'roast']],
+      ['music_production', ['beat', 'producing', 'fl studio', 'ableton', 'logic pro', 'mixing', 'mastering', 'studio', 'producer', 'beatmaker']],
+      ['music_covers', ['cover', 'acoustic', 'remix', 'version', 'rendition', 'tribute', 'mashup', 'medley']],
       
-      // Home improvement
-      ['home_improvement', ['renovation', 'remodel', 'install', 'build', 'construction', 'drywall', 'tile', 'plumbing', 'electrical', 'flooring']],
+      // Professional content
+      ['business_finance', ['business', 'entrepreneur', 'startup', 'investing', 'stock', 'crypto', 'bitcoin', 'trading', 'market', 'analysis', 'portfolio']],
+      ['real_estate', ['real estate', 'property', 'house tour', 'apartment', 'luxury home', 'investment property', 'rental', 'flip', 'mortgage']],
+      ['marketing', ['marketing', 'seo', 'social media', 'advertising', 'campaign', 'brand', 'strategy', 'growth', 'conversion', 'analytics']],
       
-      // Gaming FPS
-      ['gaming_fps', ['headshot', 'frag', 'killstreak', 'map', 'loadout', 'operator', 'round', 'clutch', 'ace', 'ranked']],
+      // Specialized content
+      ['asmr', ['asmr', 'whisper', 'tingles', 'relaxing', 'sleep', 'triggers', 'tapping', 'brushing', 'soft spoken', 'roleplay']],
+      ['books_literature', ['book review', 'reading', 'booktuber', 'tbr', 'book haul', 'author', 'novel', 'literature', 'bookish', 'currently reading']],
+      ['pets_animals', ['pet', 'dog', 'cat', 'puppy', 'kitten', 'animal', 'rescue', 'adoption', 'training', 'vet', 'breed']],
+      ['travel_adventure', ['travel', 'trip', 'vacation', 'explore', 'destination', 'hotel', 'flight', 'backpacking', 'adventure', 'tourism']],
+      ['daily_vlogs', ['vlog', 'day in my life', 'daily vlog', 'morning routine', 'night routine', 'get ready with me', 'grwm', 'day in the life']],
       
-      // Tech reviews
-      ['tech_reviews', ['unboxing', 'review', 'specs', 'benchmark', 'performance', 'camera test', 'battery life', 'display', 'comparison']],
+      // Kids content
+      ['kids_content', ['kids', 'children', 'toy', 'play', 'nursery rhyme', 'cartoon', 'animation', 'educational', 'learning', 'abc', 'counting']],
       
-      // Fitness
-      ['fitness', ['workout', 'reps', 'sets', 'muscle', 'strength', 'cardio', 'gains', 'protein', 'gym', 'exercise']],
+      // News & Sports
+      ['news_politics', ['news', 'breaking', 'politics', 'election', 'president', 'congress', 'policy', 'debate', 'analysis', 'report', 'journalist']],
+      ['sports', ['sports', 'game', 'match', 'player', 'team', 'score', 'highlights', 'championship', 'league', 'season', 'draft', 'trade']],
       
-      // Cooking/Baking
-      ['baking', ['recipe', 'flour', 'sugar', 'oven', 'bake', 'cake', 'cookies', 'bread', 'yeast', 'frosting']],
-      ['cooking', ['recipe', 'ingredients', 'cook', 'chef', 'kitchen', 'meal', 'dish', 'sauce', 'seasoning']],
+      // NEW CATEGORY PATTERNS
+      ['combat_sports', ['ufc', 'mma', 'boxing', 'wrestling', 'fight', 'knockout', 'submission', 'octagon', 'ring', 'fighter', 'martial arts', 'bellator', 'one championship', 'boxing match', 'sparring']],
+      ['design_creative', ['design', 'photoshop', 'illustrator', 'graphic design', 'ui design', 'ux design', 'adobe', 'creative cloud', 'art', 'drawing', 'digital art', 'animation', '3d modeling', 'blender', 'figma']],
+      ['crypto_trading', ['bitcoin', 'ethereum', 'cryptocurrency', 'crypto', 'trading', 'forex', 'day trading', 'technical analysis', 'chart analysis', 'altcoin', 'defi', 'nft', 'blockchain', 'trading strategy']],
+      ['health_medical', ['health', 'medical', 'doctor', 'medicine', 'hospital', 'treatment', 'symptoms', 'diagnosis', 'surgery', 'healthcare', 'wellness tips', 'medical advice', 'nutrition']],
+      ['movie_tv_reviews', ['movie review', 'film review', 'tv show review', 'series review', 'netflix', 'movie reaction', 'film analysis', 'cinema', 'movie breakdown', 'ending explained', 'trailer reaction']],
+      ['photography_film', ['photography', 'camera', 'lens', 'photo', 'filmmaking', 'cinematography', 'video production', 'camera gear', 'photo editing', 'lightroom', 'premiere pro', 'davinci resolve']],
+      ['language_learning', ['learn spanish', 'learn french', 'learn japanese', 'language learning', 'vocabulary', 'grammar lesson', 'pronunciation', 'language tips', 'polyglot', 'duolingo']],
+      ['history_culture', ['history', 'historical', 'ancient', 'civilization', 'world war', 'historical documentary', 'archaeology', 'museum', 'cultural', 'heritage', 'historical facts']]
     ]);
 
-    // Channel name patterns - recognizable names/brands that immediately indicate category
+    // Enhanced channel name patterns for sophisticated detection
     this.channelNamePatterns = new Map([
-      // Paranormal & Mystery
-      ['warren', 'paranormal'], ['ghost adventures', 'paranormal'], ['paranormal', 'paranormal'],
-      ['supernatural', 'paranormal'], ['haunted', 'paranormal'], ['ghost hunt', 'paranormal'],
-      ['zak bagans', 'paranormal'], ['sam and colby', 'paranormal'], ['twin paranormal', 'paranormal'],
-      ['nukes top', 'paranormal'], ['slapped ham', 'paranormal'], ['chills', 'paranormal'],
+      // Horror & Paranormal (Ed & Lorraine Warren and similar)
+      ['ed and lorraine warren', 'horror_paranormal'], ['warren', 'horror_paranormal'], 
+      ['ghost adventures', 'horror_paranormal'], ['paranormal', 'horror_paranormal'],
+      ['supernatural', 'horror_paranormal'], ['haunted', 'horror_paranormal'], 
+      ['ghost hunt', 'horror_paranormal'], ['zak bagans', 'horror_paranormal'], 
+      ['sam and colby', 'horror_paranormal'], ['twin paranormal', 'horror_paranormal'],
+      ['nukes top', 'horror_paranormal'], ['slapped ham', 'horror_paranormal'], 
+      ['chills', 'horror_paranormal'], ['mr nightmare', 'horror_paranormal'],
+      ['corpse husband', 'horror_paranormal'], ['nexpo', 'horror_paranormal'],
+      ['scary mysteries', 'horror_paranormal'], ['horror stories', 'horror_paranormal'],
       
-      // Famous Gaming YouTubers & Channels
-      ['pewdiepie', 'gaming_general'], ['markiplier', 'gaming_general'], ['jacksepticeye', 'gaming_general'],
-      ['dream', 'gaming_general'], ['technoblade', 'gaming_general'], ['georgenotfound', 'gaming_general'],
-      ['tommyinnit', 'gaming_general'], ['wilbur soot', 'gaming_general'], ['philza', 'gaming_general'],
-      ['gaming', 'gaming_general'], ['gamer', 'gaming_general'], ['esports', 'gaming_general'],
-      ['lets play', 'gaming_general'], ['gameplay', 'gaming_general'], ['playthrough', 'gaming_general'],
-      ['minecraft', 'gaming_general'], ['fortnite', 'gaming_general'], ['valorant', 'gaming_fps'],
-      ['call of duty', 'gaming_fps'], ['apex legends', 'gaming_fps'], ['csgo', 'gaming_fps'],
+      // Combat sports channels
+      ['ufc', 'combat_sports'], ['mma', 'combat_sports'], ['boxing', 'combat_sports'],
+      ['one championship', 'combat_sports'], ['bellator', 'combat_sports'], ['fight', 'combat_sports'],
+      ['knockout', 'combat_sports'], ['wrestling', 'combat_sports'], ['wwe', 'combat_sports'],
+      
+      // Design & Creative channels
+      ['adobe', 'design_creative'], ['photoshop', 'design_creative'], ['illustrator', 'design_creative'],
+      ['design', 'design_creative'], ['creative', 'design_creative'], ['art', 'design_creative'],
+      ['blender', 'design_creative'], ['figma', 'design_creative'], ['sketch', 'design_creative'],
+      
+      // Podcast channels
+      ['joe rogan', 'podcasts'], ['podcast', 'podcasts'], ['show', 'podcasts'],
+      ['h3 podcast', 'podcasts'], ['impaulsive', 'podcasts'], ['flagrant', 'podcasts'],
+      ['lex fridman', 'podcasts'], ['tim dillon', 'podcasts'], ['your mom house', 'podcasts'],
+      ['tigerbelly', 'podcasts'], ['bad friends', 'podcasts'], ['trash taste', 'podcasts'],
+      
+      // True Crime
+      ['bailey sarian', 'true_crime'], ['kendall rae', 'true_crime'], 
+      ['eleanor neale', 'true_crime'], ['true crime', 'true_crime'],
+      ['jcs', 'true_crime'], ['that chapter', 'true_crime'],
+      ['coffeehouse crime', 'true_crime'], ['explore with us', 'true_crime'],
+      
+      // Gaming Livestreamers
+      ['xqc', 'gaming_livestream'], ['pokimane', 'gaming_livestream'], ['ninja', 'gaming_livestream'],
+      ['shroud', 'gaming_livestream'], ['summit1g', 'gaming_livestream'], ['timthetatman', 'gaming_livestream'],
+      ['nickmercs', 'gaming_livestream'], ['sykkuno', 'gaming_livestream'], ['valkyrae', 'gaming_livestream'],
+      ['twitch', 'gaming_livestream'], ['stream', 'gaming_livestream'], 
+      
+      // Gaming Review & Content Creators
+      ['pewdiepie', 'gaming_reviews'], ['markiplier', 'gaming_reviews'], ['jacksepticeye', 'gaming_reviews'],
+      ['gameranx', 'gaming_reviews'], ['ign', 'gaming_reviews'], ['gamespot', 'gaming_reviews'],
+      ['dream', 'gaming_reviews'], ['technoblade', 'gaming_reviews'], ['georgenotfound', 'gaming_reviews'],
+      ['lets play', 'gaming_reviews'], ['gameplay', 'gaming_reviews'], ['playthrough', 'gaming_reviews'],
+      
+      // Esports & Competitive Gaming
+      ['faze', 'gaming_esports'], ['optic', 'gaming_esports'], ['tsm', 'gaming_esports'],
+      ['cloud9', 'gaming_esports'], ['g2', 'gaming_esports'], ['fnatic', 'gaming_esports'],
+      ['valorant', 'gaming_esports'], ['csgo', 'gaming_esports'], ['league of legends', 'gaming_esports'],
       
       // Tech Reviewers & Channels
       ['mkbhd', 'tech_reviews'], ['marques brownlee', 'tech_reviews'], ['unbox therapy', 'tech_reviews'],
@@ -315,13 +236,16 @@ export class AICategorizer {
       ['everythingapplepro', 'tech_reviews'], ['tech', 'tech_reviews'], ['unbox', 'tech_reviews'],
       ['review', 'tech_reviews'], ['geek', 'tech_reviews'], ['gadget', 'tech_reviews'],
       
-      // Cooking & Food Channels
-      ['gordon ramsay', 'cooking'], ['jamie oliver', 'cooking'], ['binging with babish', 'cooking'],
-      ['bon appetit', 'cooking'], ['tasty', 'cooking'], ['epicurious', 'cooking'],
-      ['america test kitchen', 'cooking'], ['food network', 'cooking'], ['kitchen nightmare', 'cooking'],
-      ['joshua weissman', 'cooking'], ['matty matheson', 'cooking'], ['sam the cooking', 'cooking'],
-      ['kitchen', 'cooking'], ['recipe', 'cooking'], ['chef', 'cooking'], ['cook', 'cooking'],
-      ['food', 'cooking'], ['meal', 'cooking'], ['cuisine', 'cooking'],
+      // Cooking & Recipe Channels
+      ['gordon ramsay', 'cooking_recipes'], ['jamie oliver', 'cooking_recipes'], 
+      ['binging with babish', 'cooking_recipes'], ['bon appetit', 'cooking_recipes'], 
+      ['tasty', 'cooking_recipes'], ['epicurious', 'cooking_recipes'],
+      ['america test kitchen', 'cooking_recipes'], ['food network', 'cooking_recipes'], 
+      ['kitchen nightmare', 'cooking_recipes'], ['joshua weissman', 'cooking_recipes'], 
+      ['matty matheson', 'cooking_recipes'], ['sam the cooking guy', 'cooking_recipes'],
+      ['kenji', 'cooking_recipes'], ['adam ragusea', 'cooking_recipes'],
+      ['kitchen', 'cooking_recipes'], ['recipe', 'cooking_recipes'], 
+      ['chef', 'cooking_recipes'], ['cook', 'cooking_recipes'],
       
       // Baking Specific
       ['claire saffitz', 'baking'], ['preppy kitchen', 'baking'], ['rosanna pansino', 'baking'],
@@ -345,10 +269,17 @@ export class AICategorizer {
       ['scotty kilmer', 'automotive'], ['chrisfix', 'automotive'], ['engineering explained', 'automotive'],
       ['car', 'automotive'], ['auto', 'automotive'], ['vehicle', 'automotive'], ['motor', 'automotive'],
       
-      // Fitness & Health
-      ['athlean', 'fitness'], ['jeff nippard', 'fitness'], ['calisthenics', 'fitness'],
-      ['fitness', 'fitness'], ['workout', 'fitness'], ['gym', 'fitness'], ['muscle', 'fitness'],
-      ['yoga with', 'fitness'], ['pamela reif', 'fitness'], ['chloe ting', 'fitness'],
+      // Fitness & Workout Channels
+      ['athlean', 'fitness_workouts'], ['jeff nippard', 'fitness_workouts'], 
+      ['chris heria', 'fitness_workouts'], ['buff dudes', 'fitness_workouts'],
+      ['jeremy ethier', 'fitness_workouts'], ['scott herman', 'fitness_workouts'],
+      ['pamela reif', 'fitness_workouts'], ['chloe ting', 'fitness_workouts'],
+      ['fitness blender', 'fitness_workouts'], ['hasfit', 'fitness_workouts'],
+      
+      // Yoga & Wellness
+      ['yoga with adriene', 'yoga_wellness'], ['yoga with kassandra', 'yoga_wellness'],
+      ['breathe and flow', 'yoga_wellness'], ['sarah beth yoga', 'yoga_wellness'],
+      ['boho beautiful', 'yoga_wellness'], ['mady morrison', 'yoga_wellness'],
       ['body project', 'fitness'], ['hasfit', 'fitness'], ['fitnessblender', 'fitness'],
       
       // Music & Artists
@@ -388,19 +319,20 @@ export class AICategorizer {
       ['makeup', 'fashion'], ['beauty', 'fashion'], ['skincare', 'fashion'], ['cosmetic', 'fashion'],
       
       // Travel & Adventure
-      ['travel', 'travel'], ['adventure', 'travel'], ['explore', 'travel'], ['trip', 'travel'],
-      ['yes theory', 'travel'], ['lost leblanc', 'travel'], ['kara and nate', 'travel'],
-      ['drew binsky', 'travel'], ['vagabrothers', 'travel'], ['wolters world', 'travel'],
+      ['yes theory', 'travel_adventure'], ['lost leblanc', 'travel_adventure'], 
+      ['kara and nate', 'travel_adventure'], ['drew binsky', 'travel_adventure'], 
+      ['vagabrothers', 'travel_adventure'], ['wolters world', 'travel_adventure'],
+      ['travel', 'travel_adventure'], ['adventure', 'travel_adventure'],
       
-      // Business & Entrepreneurship
-      ['gary vee', 'business'], ['entrepreneur', 'business'], ['business', 'business'],
-      ['startup', 'business'], ['hustle', 'business'], ['grind', 'business'], ['ceo', 'business'],
-      ['alex hormozi', 'business'], ['patrick bet david', 'business'], ['valuetainment', 'business'],
+      // Business & Finance
+      ['gary vee', 'business_finance'], ['alex hormozi', 'business_finance'], 
+      ['patrick bet david', 'business_finance'], ['valuetainment', 'business_finance'],
+      ['graham stephan', 'business_finance'], ['meet kevin', 'business_finance'], 
+      ['andrei jikh', 'business_finance'], ['entrepreneur', 'business_finance'],
       
-      // Finance & Investing
-      ['graham stephan', 'finance'], ['meet kevin', 'finance'], ['andrei jikh', 'finance'],
-      ['finance', 'finance'], ['invest', 'finance'], ['money', 'finance'], ['stock', 'finance'],
-      ['crypto', 'finance'], ['bitcoin', 'finance'], ['trading', 'finance'], ['market', 'finance'],
+      // Real Estate
+      ['graham stephan', 'real_estate'], ['meet kevin', 'real_estate'],
+      ['bigger pockets', 'real_estate'], ['property', 'real_estate'],
       
       // Programming & Development
       ['traversy media', 'programming'], ['web dev', 'programming'], ['code with', 'programming'],
@@ -418,10 +350,27 @@ export class AICategorizer {
       ['nba', 'sports'], ['mlb', 'sports'], ['fifa', 'sports'], ['football', 'sports'],
       ['basketball', 'sports'], ['baseball', 'sports'], ['soccer', 'sports'], ['hockey', 'sports'],
       
-      // Lifestyle & Vlogs
-      ['david dobrik', 'lifestyle'], ['emma chamberlain', 'lifestyle'], ['vlog', 'lifestyle'],
-      ['day in my life', 'lifestyle'], ['daily', 'lifestyle'], ['routine', 'lifestyle'],
-      ['lifestyle', 'lifestyle'], ['life', 'lifestyle'], ['blog', 'lifestyle']
+      // Daily Vlogs
+      ['david dobrik', 'daily_vlogs'], ['emma chamberlain', 'daily_vlogs'], 
+      ['dolan twins', 'daily_vlogs'], ['vlog squad', 'daily_vlogs'],
+      ['vlog', 'daily_vlogs'], ['daily', 'daily_vlogs'], ['routine', 'daily_vlogs'],
+      
+      // Beauty & Fashion
+      ['james charles', 'beauty_fashion'], ['jeffree star', 'beauty_fashion'],
+      ['nikkietutorials', 'beauty_fashion'], ['tati', 'beauty_fashion'],
+      ['safiya nygaard', 'beauty_fashion'], ['simply nailogical', 'beauty_fashion'],
+      
+      // ASMR
+      ['gibi asmr', 'asmr'], ['asmr darling', 'asmr'], ['gentle whispering', 'asmr'],
+      ['asmr zeitgeist', 'asmr'], ['asmr', 'asmr'], ['tingles', 'asmr'],
+      
+      // Kids Content
+      ['ryan toys', 'kids_content'], ['cocomelon', 'kids_content'], ['pinkfong', 'kids_content'],
+      ['blippi', 'kids_content'], ['peppa pig', 'kids_content'], ['kids', 'kids_content'],
+      
+      // Documentary Channels
+      ['vice', 'documentary'], ['vox', 'documentary'], ['business insider', 'documentary'],
+      ['great big story', 'documentary'], ['documentary', 'documentary']
     ]);
   }
 
@@ -432,7 +381,12 @@ export class AICategorizer {
     const description = (metadata.description || '').toLowerCase();
     const allVideoText = videoTitles.join(' ').toLowerCase();
     
-    // Series and format detection
+    // INTERNATIONAL CONTENT DETECTION - Check first for non-English content
+    if (this.isInternationalContent(metadata.name, description, videoTitles)) {
+      return { categoryId: 'international', confidence: 95 };
+    }
+    
+    // Series and format detection for enhanced accuracy
     const seriesPatterns = this.detectSeriesPatterns(videoTitles);
     const formatType = this.detectVideoFormat(videoTitles);
     
@@ -442,10 +396,16 @@ export class AICategorizer {
       scores.set(formatType, currentScore + 12); // Strong signal from video format
     }
     
-    // Apply series-based boost for gaming channels
-    if (seriesPatterns.isSeriesBased && seriesPatterns.seriesType === 'episode') {
-      const gamingScore = scores.get('gaming_general') || 0;
-      scores.set('gaming_general', gamingScore + 8); // Gaming channels often have episodic content
+    // Apply series-based boost for appropriate categories
+    if (seriesPatterns.isSeriesBased) {
+      if (seriesPatterns.seriesType === 'podcast' || seriesPatterns.seriesType === 'interview') {
+        const podcastScore = scores.get('podcasts') || 0;
+        scores.set('podcasts', podcastScore + 12); // Strong signal for podcast content
+      } else if (seriesPatterns.seriesType === 'episode') {
+        // Could be gaming or other episodic content
+        const gamingScore = scores.get('gaming_reviews') || 0;
+        scores.set('gaming_reviews', gamingScore + 8);
+      }
     }
 
     // Phase 1: Direct channel name pattern matching (highest confidence)
@@ -483,9 +443,39 @@ export class AICategorizer {
       }
     }
 
-    // Phase 3: Traditional keyword matching (enhanced)
+    // Phase 3: Enhanced keyword matching with compound requirements
     for (const category of this.categories) {
       let traditionalScore = 0;
+      let matchedKeywords = 0;
+      
+      // Special handling for gaming categories - require gaming context
+      const isGamingCategory = category.id.startsWith('gaming_');
+      if (isGamingCategory) {
+        // Check for gaming context first
+        const gamingTerms = ['game', 'gaming', 'gameplay', 'gamer', 'video game', 'playthrough', 'lets play', 'xbox', 'playstation', 'nintendo', 'steam', 'pc gaming'];
+        let hasGamingContext = false;
+        for (const term of gamingTerms) {
+          if (channelName.includes(term) || allVideoText.includes(term)) {
+            hasGamingContext = true;
+            break;
+          }
+        }
+        // Skip this gaming category if no gaming context found
+        if (!hasGamingContext) {
+          continue;
+        }
+      }
+      
+      // Special handling for combat sports - don't mix with gaming
+      if (category.id === 'combat_sports') {
+        const combatTerms = ['ufc', 'mma', 'boxing', 'fight', 'knockout', 'wrestling', 'wwe', 'martial arts'];
+        for (const term of combatTerms) {
+          if (channelName.includes(term) || allVideoText.includes(term)) {
+            traditionalScore += 10; // Strong boost for combat sports
+            break;
+          }
+        }
+      }
       
       // YouTube topic IDs (still valuable)
       if (metadata.topicIds) {
@@ -499,22 +489,35 @@ export class AICategorizer {
       // Enhanced keyword matching
       for (const keyword of category.keywords) {
         const keywordRegex = new RegExp(`\\b${keyword}\\b`, 'gi');
+        let keywordMatched = false;
         
         // Check channel name (high weight)
         if (keywordRegex.test(channelName)) {
-          traditionalScore += 5; // Increased from 3
+          traditionalScore += 5;
+          keywordMatched = true;
         }
         
         // Check video titles (very high weight for content analysis)
         const videoMatches = allVideoText.match(keywordRegex);
         if (videoMatches) {
-          traditionalScore += Math.min(videoMatches.length * 1.5, 6); // Cap to prevent over-weighting
+          traditionalScore += Math.min(videoMatches.length * 1.5, 6);
+          keywordMatched = true;
         }
         
         // Check description (medium weight)
         if (keywordRegex.test(description)) {
-          traditionalScore += 2; // Increased from 1
+          traditionalScore += 2;
+          keywordMatched = true;
         }
+        
+        if (keywordMatched) {
+          matchedKeywords++;
+        }
+      }
+      
+      // Require at least 2 keyword matches for better accuracy
+      if (matchedKeywords < 2 && traditionalScore < 10) {
+        traditionalScore = Math.floor(traditionalScore * 0.5); // Reduce score for single matches
       }
       
       if (traditionalScore > 0) {
@@ -523,23 +526,40 @@ export class AICategorizer {
       }
     }
 
-    // Find the best match
+    // Enhanced dominant category selection with confidence scoring
     if (scores.size === 0) {
       return { categoryId: null, confidence: 0 };
     }
 
     const sortedScores = Array.from(scores.entries()).sort((a, b) => b[1] - a[1]);
     const [bestCategory, bestScore] = sortedScores[0];
+    const [, secondScore] = sortedScores[1] || [null, 0];
     
-    // Calculate confidence percentage  
-    const confidence = Math.min((bestScore / 6) * 100, 100); // Lowered denominator from 10 to 6
+    // Enhanced confidence calculation based on score and separation
+    let confidence = Math.min((bestScore / 8) * 100, 100); // Adjusted for new scoring
     
-    // Only return if confidence is high enough for accuracy
-    if (confidence < 40) {
+    // Boost confidence if there's clear separation from second place
+    if (secondScore > 0) {
+      const separation = (bestScore - secondScore) / bestScore;
+      if (separation > 0.5) {
+        confidence = Math.min(confidence * 1.2, 100); // 20% boost for clear dominance
+      } else if (separation < 0.2) {
+        confidence *= 0.8; // Reduce confidence if scores are close
+      }
+    }
+    
+    // Special confidence boosts for high-accuracy categories
+    const highAccuracyCategories = ['podcasts', 'horror_paranormal', 'tech_reviews', 'international'];
+    if (highAccuracyCategories.includes(bestCategory)) {
+      confidence = Math.min(confidence * 1.1, 100);
+    }
+    
+    // Only return if confidence is reasonable
+    if (confidence < 25) {
       return { categoryId: null, confidence };
     }
     
-    return { categoryId: bestCategory, confidence };
+    return { categoryId: bestCategory, confidence: Math.round(confidence) };
   }
 
   // Backward compatibility method
@@ -661,9 +681,10 @@ export class AICategorizer {
       totalCategorized += channelIds.length;
     }
     
-    // Validation Rule 1: Ensure we didn't lose any channels
+    // Validation Rule 1: Handle missing channels gracefully
     if (totalCategorized !== allChannels.length) {
-      console.warn(`FolderTube: Categorization validation failed - channel count mismatch. Expected: ${allChannels.length}, Got: ${totalCategorized}`);
+      const missingCount = allChannels.length - totalCategorized;
+      const missingPercentage = (missingCount / allChannels.length) * 100;
       
       // Find which channels are missing
       const categorizedIds = new Set<string>();
@@ -672,7 +693,15 @@ export class AICategorizer {
       }
       
       const missingChannels = allChannels.filter(c => !categorizedIds.has(c.id));
-      console.warn(`FolderTube: Missing channels:`, missingChannels.map(c => c.name));
+      
+      // Only warn if significant number of channels are missing (more than 20%)
+      if (missingPercentage > 20) {
+        console.warn(`FolderTube: Significant channel count mismatch. Expected: ${allChannels.length}, Got: ${totalCategorized} (${missingPercentage.toFixed(1)}% missing)`);
+        console.warn(`FolderTube: Missing channels:`, missingChannels.map(c => c.name));
+      } else {
+        console.log(`FolderTube: ${missingCount} channels couldn't be categorized (${missingPercentage.toFixed(1)}% - likely due to API errors)`);
+        console.log(`FolderTube: Missing channels:`, missingChannels.map(c => c.name));
+      }
       
       // Add missing channels to discoveries to prevent data loss
       if (missingChannels.length > 0) {
@@ -685,9 +714,10 @@ export class AICategorizer {
     // Validation Rule 2: Ensure minimum categorization quality (at least 70% of channels should be categorized into meaningful categories)
     let meaningfulCategories = 0;
     let channelsInMeaningfulCategories = 0;
+    const orphanedChannels: string[] = [];
     
     for (const [categoryId, channelIds] of categorizedChannels) {
-      if (channelIds.length >= 2) { // Back to 2-channel minimum - no single-channel folders
+      if (channelIds.length >= 1) { // Allow single-channel folders for meaningful categories
         validated.set(categoryId, channelIds);
         
         // Don't count generic fallback categories as "meaningful"
@@ -695,7 +725,18 @@ export class AICategorizer {
           meaningfulCategories++;
           channelsInMeaningfulCategories += channelIds.length;
         }
+      } else {
+        // Only orphan truly empty categories
+        orphanedChannels.push(...channelIds);
+        console.log(`FolderTube: Category "${categoryId}" is empty, moving to discoveries`);
       }
+    }
+    
+    // Add orphaned channels to discoveries to prevent data loss
+    if (orphanedChannels.length > 0) {
+      const existingDiscoveries = validated.get('discoveries') || [];
+      validated.set('discoveries', [...existingDiscoveries, ...orphanedChannels]);
+      console.log(`FolderTube: Added ${orphanedChannels.length} orphaned channels to discoveries`);
     }
     
     const meaningfulPercentage = (channelsInMeaningfulCategories / allChannels.length) * 100;
@@ -856,6 +897,10 @@ export class AICategorizer {
       for (const [groupId, channelIds] of contentGroups) {
         results.set(groupId, channelIds);
       }
+    } else if (uncategorized.length > 0) {
+      // If we have 1 uncategorized channel, don't lose it - add to discoveries
+      console.log(`FolderTube: ${uncategorized.length} channel(s) remaining after aggressive categorization`);
+      results.set('discoveries', uncategorized.map(c => c.id));
     }
     
     console.log(`FolderTube: Aggressive re-categorization completed. Created ${results.size} new groups.`);
@@ -1250,17 +1295,19 @@ export class AICategorizer {
     return undefined;
   }
   
-  // Detect series patterns in video titles
+  // Detect series patterns in video titles - enhanced for podcast detection
   private detectSeriesPatterns(videoTitles: string[]): { isSeriesBased: boolean, seriesType: string | null } {
     if (videoTitles.length < 3) return { isSeriesBased: false, seriesType: null };
     
     const seriesIndicators = {
+      podcast: /(?:episode|ep\.?|e)\s*\d+|#\d+\s*-|ep\s*\d+/i,
       episode: /(?:episode|ep\.?|e)\s*\d+/i,
       part: /(?:part|pt\.?)\s*\d+/i,
-      numbered: /#\d+|^\d+\./,
+      numbered: /#\d+|^\d+\.|\|\s*\d+/,
       season: /(?:season|s)\s*\d+/i,
       daily: /(?:daily|day)\s*\d+/i,
-      weekly: /week\s*\d+/i
+      weekly: /week\s*\d+/i,
+      interview: /(?:with\s+\w+|interview|guest|talks\s+with)/i
     };
     
     let matchCounts: Record<string, number> = {};
@@ -1283,36 +1330,52 @@ export class AICategorizer {
     return { isSeriesBased: false, seriesType: null };
   }
   
-  // Detect video format patterns
+  // Detect video format patterns - enhanced for sophisticated detection
   private detectVideoFormat(videoTitles: string[]): string | null {
     const formatPatterns = {
-      tutorial: { 
-        keywords: ['how to', 'tutorial', 'guide', 'diy', 'step by step', 'learn'],
-        category: 'education'
+      podcast: {
+        keywords: ['episode', 'ep.', 'ep ', '#', 'interview', 'guest', 'talks', 'podcast', 'discussion'],
+        category: 'podcasts'
       },
-      review: {
-        keywords: ['review', 'unboxing', 'first impressions', 'hands on', 'tested', 'comparison'],
+      tutorial: { 
+        keywords: ['how to', 'tutorial', 'guide', 'diy', 'step by step', 'learn', 'explained'],
+        category: 'tutorials'
+      },
+      tech_review: {
+        keywords: ['review', 'unboxing', 'first impressions', 'hands on', 'tested', 'comparison', 'vs'],
         category: 'tech_reviews'
       },
-      gameplay: {
-        keywords: ['gameplay', 'walkthrough', 'lets play', 'playthrough', 'boss fight', 'episode'],
-        category: 'gaming_general'
+      gaming_content: {
+        keywords: ['gameplay', 'walkthrough', 'lets play', 'playthrough', 'boss fight', 'stream'],
+        category: 'gaming_reviews'
       },
-      vlog: {
-        keywords: ['vlog', 'day in my life', 'daily', 'routine', 'morning', 'night'],
-        category: 'lifestyle'
+      daily_vlog: {
+        keywords: ['vlog', 'day in my life', 'daily', 'routine', 'morning', 'grwm'],
+        category: 'daily_vlogs'
       },
-      recipe: {
-        keywords: ['recipe', 'cooking', 'how to make', 'ingredients', 'meal prep'],
-        category: 'cooking'
+      cooking_recipe: {
+        keywords: ['recipe', 'cooking', 'how to make', 'ingredients', 'meal prep', 'baking'],
+        category: 'cooking_recipes'
       },
-      news: {
+      news_content: {
         keywords: ['breaking', 'update', 'news', 'report', 'analysis', 'coverage'],
-        category: 'news'
+        category: 'news_politics'
       },
-      workout: {
-        keywords: ['workout', 'exercise', 'training', 'routine', 'hiit', 'cardio'],
-        category: 'fitness'
+      fitness_content: {
+        keywords: ['workout', 'exercise', 'training', 'routine', 'hiit', 'cardio', 'yoga'],
+        category: 'fitness_workouts'
+      },
+      reaction_content: {
+        keywords: ['reaction', 'reacts', 'watching', 'first time', 'response'],
+        category: 'reaction_commentary'
+      },
+      horror_content: {
+        keywords: ['scary', 'horror', 'ghost', 'haunted', 'investigation', 'paranormal'],
+        category: 'horror_paranormal'
+      },
+      asmr_content: {
+        keywords: ['asmr', 'whisper', 'relaxing', 'sleep', 'tingles'],
+        category: 'asmr'
       }
     };
     
@@ -1602,6 +1665,83 @@ export class AICategorizer {
     }
     
     return groups;
+  }
+  
+  // Detect international (non-English) content
+  private isInternationalContent(channelName: string, description: string, videoTitles: string[]): boolean {
+    // Check for non-ASCII characters (indicates non-English)
+    const nonAsciiPattern = /[^\x00-\x7F]/;
+    
+    // Common non-English language indicators
+    const nonEnglishIndicators = [
+      // Asian languages
+      /[\u4e00-\u9fff]/, // Chinese characters
+      /[\u3040-\u309f\u30a0-\u30ff]/, // Japanese hiragana/katakana
+      /[\uac00-\ud7af]/, // Korean hangul
+      /[\u0600-\u06ff]/, // Arabic
+      /[\u0590-\u05ff]/, // Hebrew
+      /[\u0e00-\u0e7f]/, // Thai
+      /[\u0900-\u097f]/, // Hindi/Devanagari
+      
+      // European languages with special characters
+      /[àáâãäåæçèéêëìíîïðñòóôõöøùúûü]/i, // Latin extended
+      /[а-я]/i, // Cyrillic
+      /[α-ω]/i, // Greek
+    ];
+    
+    // Language keywords in channel names/descriptions
+    const languageKeywords = [
+      'español', 'française', 'deutsch', 'italiano', 'português',
+      'русский', 'polski', 'türkçe', 'العربية', 'हिन्दी',
+      '中文', '日本語', '한국어', 'bahasa', 'tiếng việt'
+    ];
+    
+    // Check channel name for non-English indicators
+    if (nonAsciiPattern.test(channelName)) {
+      // Count non-ASCII characters
+      const nonAsciiCount = (channelName.match(nonAsciiPattern) || []).length;
+      const totalChars = channelName.length;
+      
+      // If more than 30% of characters are non-ASCII, likely international
+      if (nonAsciiCount / totalChars > 0.3) {
+        return true;
+      }
+    }
+    
+    // Check for specific language patterns
+    for (const pattern of nonEnglishIndicators) {
+      if (pattern.test(channelName) || pattern.test(description)) {
+        return true;
+      }
+    }
+    
+    // Check for language keywords
+    const combinedText = `${channelName} ${description}`.toLowerCase();
+    for (const keyword of languageKeywords) {
+      if (combinedText.includes(keyword.toLowerCase())) {
+        return true;
+      }
+    }
+    
+    // Check video titles - if majority are non-English
+    if (videoTitles.length > 0) {
+      let nonEnglishTitles = 0;
+      for (const title of videoTitles) {
+        if (nonAsciiPattern.test(title)) {
+          const nonAsciiCount = (title.match(nonAsciiPattern) || []).length;
+          if (nonAsciiCount / title.length > 0.3) {
+            nonEnglishTitles++;
+          }
+        }
+      }
+      
+      // If more than 50% of video titles are non-English
+      if (nonEnglishTitles / videoTitles.length > 0.5) {
+        return true;
+      }
+    }
+    
+    return false;
   }
 }
 

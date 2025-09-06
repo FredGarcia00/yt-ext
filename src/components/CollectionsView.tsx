@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Folder, Channel } from '../utils/storage';
 import { YouTubeAPI } from '../utils/youtube-api';
-import { isExtensionContextValid, showExtensionReloadNotification, safeStorageGet } from '../utils/extension-context';
+import { isExtensionContextValid, showExtensionReloadNotification } from '../utils/extension-context';
+import { SubscriptionService } from '../utils/subscription-service';
+import { SupabaseAuthService } from '../utils/supabase-auth-service';
 
 // Utility function to format date to "X ago" format
 const formatTimeAgo = (publishedAt: string): string => {
@@ -50,21 +52,90 @@ const CollectionsView: React.FC<CollectionsViewProps> = ({ onClose }) => {
   const [forceRefresh, setForceRefresh] = useState(0);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
   const [quotaResetTime, setQuotaResetTime] = useState<number | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Filter folders based on search term
+  const filteredFolders = React.useMemo(() => {
+    if (!searchTerm.trim()) {
+      return folders;
+    } else {
+      return folders.filter(folder => {
+        // Search in folder name
+        const nameMatch = folder.name.toLowerCase().includes(searchTerm.toLowerCase());
+        
+        // Search in channel names within the folder
+        const channelMatch = folder.channelIds.some(channelId => {
+          const channel = channels.find(c => c.id === channelId);
+          return channel && channel.name.toLowerCase().includes(searchTerm.toLowerCase());
+        });
+        
+        return nameMatch || channelMatch;
+      });
+    }
+  }, [searchTerm, folders, channels]);
+
+  // Helper function to save folders to Supabase backend
+  const saveFolders = async (foldersToSave: Folder[]) => {
+    try {
+      // Force authentication to ensure we have valid credentials
+      let auth = await SupabaseAuthService.getCurrentAuth();
+      
+      if (!auth) {
+        // Force authentication
+        const authResult = await SupabaseAuthService.authenticate();
+        
+        if (authResult.success && authResult.email && authResult.channelId) {
+          auth = {
+            email: authResult.email,
+            channelId: authResult.channelId,
+            channelName: authResult.channelName || 'Unknown'
+          };
+        } else {
+          console.error('FolderTube: [Collections] Authentication failed:', authResult.error);
+          // Still save to local storage even if Supabase save fails
+          await chrome.storage.local.set({ folders: foldersToSave });
+          return;
+        }
+      } else {
+      }
+
+      // Use the SupabaseAuthService.saveFolders method which handles authentication properly
+      const result = await SupabaseAuthService.saveFolders(foldersToSave, {
+        email: auth.email,
+        channelId: auth.channelId
+      });
+      
+      if (result.success) {
+      } else {
+        console.error('FolderTube: [Collections] Failed to save folders to Supabase:', result.error);
+        // Save to local storage as fallback
+        await chrome.storage.local.set({ folders: foldersToSave });
+        console.log('FolderTube: [Collections] Saved to local storage as fallback');
+      }
+    } catch (error) {
+      console.error('FolderTube: [Collections] Failed to save folders:', error);
+      // Save to local storage as fallback
+      try {
+        await chrome.storage.local.set({ folders: foldersToSave });
+      } catch (storageError) {
+        console.error('FolderTube: [Collections] Failed to save to local storage:', storageError);
+      }
+    }
+  };
 
   useEffect(() => {
     loadFolders();
     loadChannels();
     checkApiQuotaStatus();
 
-    // Listen for storage changes
-    const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }) => {
-      if (changes.folders) {
-          setFolders(changes.folders.newValue || []);
-      }
-    };
+    // Refresh folders periodically since they're now stored server-side
+    const refreshInterval = setInterval(() => {
+      loadFolders();
+    }, 30000); // Refresh every 30 seconds
 
-    chrome.storage.onChanged.addListener(handleStorageChange);
-    return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+    return () => {
+      clearInterval(refreshInterval);
+    };
   }, []);
 
   // Preload videos for first 3 folders when component mounts
@@ -88,10 +159,35 @@ const CollectionsView: React.FC<CollectionsViewProps> = ({ onClose }) => {
         return;
       }
       
-      // Load from chrome.storage.local where AI Sort saves folders
-      const result = await safeStorageGet(['folders']);
-      const loadedFolders = result.folders || [];
+      let loadedFolders: Folder[] = [];
+      
+      // Try to load from Supabase backend first
+      const backendResult = await SupabaseAuthService.loadFolders();
+      
+      if (backendResult.success && backendResult.folders && backendResult.folders.length > 0) {
+        console.log('FolderTube: [Collections] Loaded folders from Supabase:', backendResult.folders.length);
+        // Convert Supabase format to local format
+        loadedFolders = backendResult.folders.map((folder: any) => ({
+          id: folder.id || folder.folder_id,
+          name: folder.folder_name || folder.name,
+          channelIds: folder.channel_ids || folder.channelIds || []
+        }));
+      } else {
+        // Fallback to local storage
+        console.log('FolderTube: [Collections] Supabase load failed, checking local storage');
+        const localData = await chrome.storage.local.get(['folders']);
+        
+        if (localData.folders && localData.folders.length > 0) {
+          console.log('FolderTube: [Collections] Loaded folders from local storage:', localData.folders.length);
+          loadedFolders = localData.folders;
+        } else {
+          console.log('FolderTube: [Collections] No folders found in local storage either');
+        }
+      }
+      
+      console.log('FolderTube: [Collections] Setting folders:', loadedFolders);
       setFolders(loadedFolders);
+      
       if (loadedFolders.length > 0) {
         setSelectedFolder(loadedFolders[0]);
       }
@@ -103,7 +199,21 @@ const CollectionsView: React.FC<CollectionsViewProps> = ({ onClose }) => {
         return;
       }
       
-      console.error('Error loading folders:', error);
+      console.error('FolderTube: [Collections] Error loading folders:', error);
+      
+      // Try local storage as last resort
+      try {
+        const localData = await chrome.storage.local.get(['folders']);
+        if (localData.folders && localData.folders.length > 0) {
+          console.log('FolderTube: [Collections] Emergency fallback to local storage:', localData.folders.length);
+          setFolders(localData.folders);
+          if (localData.folders.length > 0) {
+            setSelectedFolder(localData.folders[0]);
+          }
+        }
+      } catch (localError) {
+        console.error('FolderTube: [Collections] Even local storage failed:', localError);
+      }
     }
   };
 
@@ -282,7 +392,7 @@ const CollectionsView: React.FC<CollectionsViewProps> = ({ onClose }) => {
     );
 
     setFolders(updatedFolders);
-    await chrome.storage.local.set({ folders: updatedFolders });
+    await saveFolders(updatedFolders);
     
     if (selectedFolder?.id === editingFolderId) {
       setSelectedFolder({ ...selectedFolder, name: editingFolderName.trim() });
@@ -290,6 +400,82 @@ const CollectionsView: React.FC<CollectionsViewProps> = ({ onClose }) => {
 
     setEditingFolderId(null);
     setEditingFolderName('');
+  };
+
+  // Delete entire folder from Supabase backend - NO FALLBACKS
+  const deleteFolder = async (folderId: string) => {
+    try {
+      const folderToDelete = folders.find(f => f.id === folderId);
+      if (!folderToDelete) {
+        throw new Error('Folder not found');
+      }
+
+      const confirmDelete = confirm(`Are you sure you want to delete the folder "${folderToDelete.name}"? This action cannot be undone.`);
+      if (!confirmDelete) {
+        return;
+      }
+
+      console.log('FolderTube: [Collections] Deleting folder:', folderToDelete.name);
+      
+      // Delete from Supabase backend
+      const auth = await SupabaseAuthService.getCurrentAuth();
+      if (!auth) {
+        throw new Error('Authentication required to delete folders');
+      }
+
+      // Use background script to delete from Supabase
+      const result = await new Promise<any>((resolve) => {
+        chrome.runtime.sendMessage(
+          {
+            type: 'manageFolders',
+            action: 'delete',
+            email: auth.email,
+            channelId: auth.channelId,
+            folderName: folderToDelete.name
+          },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              console.error('FolderTube: [Collections] Delete error:', chrome.runtime.lastError);
+              resolve({ success: false, error: chrome.runtime.lastError.message });
+            } else {
+              resolve(response || { success: false, error: 'No response from background' });
+            }
+          }
+        );
+      });
+      
+      if (result.success) {
+        // Only update UI if backend deletion succeeded
+        const updatedFolders = folders.filter(f => f.id !== folderId);
+        setFolders(updatedFolders);
+        setSelectedFolder(null);
+        console.log('FolderTube: [Collections] ✅ Folder deleted successfully');
+        
+        // Show success message
+        const message = document.createElement('div');
+        message.textContent = `✅ Folder "${folderToDelete.name}" deleted successfully`;
+        message.style.cssText = `
+          position: fixed;
+          top: 80px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: #10b981;
+          color: white;
+          padding: 12px 24px;
+          border-radius: 24px;
+          font-size: 14px;
+          font-weight: 500;
+          z-index: 10000;
+        `;
+        document.body.appendChild(message);
+        setTimeout(() => message.remove(), 3000);
+      } else {
+        throw new Error(result.error || 'Failed to delete from backend');
+      }
+    } catch (error) {
+      console.error('FolderTube: [Collections] ❌ Delete failed:', error);
+      alert(`Failed to delete folder: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
 
   const removeChannelFromFolder = async (folderId: string, channelId: string) => {
@@ -300,7 +486,7 @@ const CollectionsView: React.FC<CollectionsViewProps> = ({ onClose }) => {
     );
 
     setFolders(updatedFolders);
-    await chrome.storage.local.set({ folders: updatedFolders });
+    await saveFolders(updatedFolders);
 
     if (selectedFolder?.id === folderId) {
       setSelectedFolder(updatedFolders.find(f => f.id === folderId) || null);
@@ -433,7 +619,7 @@ const CollectionsView: React.FC<CollectionsViewProps> = ({ onClose }) => {
       }
     }));
     setFolders(updatedFolders);
-    await chrome.storage.local.set({ folders: updatedFolders });
+    await saveFolders(updatedFolders);
 
     // Clear the video cache for ALL affected folders to force refresh
     const newFolderVideos = { ...folderVideos };
@@ -707,26 +893,33 @@ const CollectionsView: React.FC<CollectionsViewProps> = ({ onClose }) => {
             avatarUrl: dragData.avatarUrl || ''
           });
           
-          // Force a complete UI refresh by reloading everything from storage
-          const refreshData = await chrome.storage.local.get(['folders']);
-          if (refreshData.folders) {
-            setFolders(refreshData.folders);
-            
-            // Clear video cache for ALL folders to force complete refresh
-            setFolderVideos({});
-            
-            // Update selected folder state if we're currently viewing any affected folder
-            if (selectedFolder) {
-              // Check if we're viewing the target folder or the folder the channel was removed from
-              const updatedSelectedFolder = refreshData.folders.find((f: any) => f.id === selectedFolder.id);
-              if (updatedSelectedFolder) {
-                setSelectedFolder(updatedSelectedFolder);
-                console.log(`FolderTube: Updated selected folder "${updatedSelectedFolder.name}" - now has ${updatedSelectedFolder.channelIds.length} channels`);
-              } else {
-                // Folder might have been deleted, clear selection
-                setSelectedFolder(null);
+          // Force a complete UI refresh by reloading everything from account-specific storage
+          try {
+            const accountResult = await SubscriptionService.getCurrentAccount();
+            if (accountResult.success && accountResult.accountId) {
+              const accountStorageKey = await SubscriptionService.getAccountStorageKey('folders', accountResult.accountId);
+              const refreshData = await chrome.storage.local.get([accountStorageKey]);
+              if (refreshData[accountStorageKey]) {
+                setFolders(refreshData[accountStorageKey]);
+                
+                // Clear video cache for ALL folders to force complete refresh
+                setFolderVideos({});
+                
+                // Update selected folder state if we're currently viewing any affected folder
+                if (selectedFolder) {
+                  // Check if we're viewing the target folder or the folder the channel was removed from
+                  const updatedSelectedFolder = refreshData[accountStorageKey].find((f: any) => f.id === selectedFolder.id);
+                  if (updatedSelectedFolder) {
+                    setSelectedFolder(updatedSelectedFolder);
+                    console.log(`FolderTube: Updated selected folder "${updatedSelectedFolder.name}" - now has ${updatedSelectedFolder.channelIds.length} channels`);
+                  } else {
+                    // Folder might have been deleted, clear selection
+                    setSelectedFolder(null);
+                  }
+                }
               }
             }
+          } catch (error) {
           }
         
           // Force UI refresh
@@ -927,10 +1120,56 @@ const CollectionsView: React.FC<CollectionsViewProps> = ({ onClose }) => {
         </button>
       </div>
 
+      {/* Search Bar - Contained within collections */}
+      <div style={{
+        maxWidth: '1400px',
+        margin: '0 auto',
+        padding: '0 20px 20px 20px',
+        position: 'relative',
+        zIndex: 1
+      }}>
+        <div style={{
+          position: 'relative',
+          maxWidth: '400px',
+          margin: '0'
+        }}>
+          <input
+            type="text"
+            placeholder="Search folders..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '12px 16px 12px 40px',
+              fontSize: '14px',
+              border: '1px solid #e0e0e0',
+              borderRadius: '24px',
+              outline: 'none',
+              background: 'white',
+              boxSizing: 'border-box'
+            }}
+          />
+          <svg 
+            style={{
+              position: 'absolute',
+              left: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#606060'
+            }}
+            width="16" height="16" viewBox="0 0 24 24" fill="none"
+          >
+            <path d="M21 21L16.65 16.65M19 11C19 15.4183 15.4183 19 11 19C6.58172 19 3 15.4183 3 11C3 6.58172 6.58172 3 11 3C15.4183 3 19 6.58172 19 11Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </div>
+      </div>
+
       <div className="collections-container" style={{
         display: 'flex',
         gap: '20px',
         maxWidth: '1400px',
+        position: 'relative',
+        zIndex: 1,
         margin: '0 auto',
         background: 'white',
         borderRadius: '12px',
@@ -946,16 +1185,18 @@ const CollectionsView: React.FC<CollectionsViewProps> = ({ onClose }) => {
           overflowY: 'auto'
         }}>
           <h2 style={{ fontSize: '16px', fontWeight: '500', color: '#0f0f0f', margin: '0 0 16px 0' }}>
-            Folders ({folders.length})
+            Folders ({searchTerm ? filteredFolders.length : folders.length}{searchTerm ? ` of ${folders.length}` : ''})
           </h2>
-          {folders.length === 0 ? (
+          {filteredFolders.length === 0 ? (
             <div style={{ padding: '20px 0', color: '#666', fontSize: '14px', textAlign: 'center' }}>
-              No folders found.<br/>
-              Use AI Sort to create folders first.
+              {folders.length === 0 
+                ? "No folders found. Use AI Sort to create folders first."
+                : `No folders match "${searchTerm}"`
+              }
             </div>
           ) : (
             <div className="folders-list" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {folders.map(folder => (
+              {filteredFolders.map(folder => (
                 <div
                   key={folder.id}
                   className={`folder-item ${selectedFolder?.id === folder.id ? 'selected' : ''}`}
@@ -1041,6 +1282,27 @@ const CollectionsView: React.FC<CollectionsViewProps> = ({ onClose }) => {
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                           <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>
+                        </svg>
+                      </button>
+                    )}
+                    {editingFolderId !== folder.id && selectedFolder?.id === folder.id && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteFolder(folder.id);
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          color: '#ef4444',
+                          opacity: 0.8
+                        }}
+                        title="Delete folder"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                          <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14zM10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
                       </button>
                     )}

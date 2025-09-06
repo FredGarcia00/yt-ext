@@ -7,23 +7,19 @@ import SidebarFolderSection from './components/SidebarFolderSection';
 import * as collectionsModule from './content-collections';
 (window as any).FolderTubeCollections = collectionsModule;
 
-console.log('FolderTube: Sidebar content script loaded');
 
 const CONTAINER_ID = 'foldertube-sidebar-container';
 
 function injectSidebarUI() {
-  console.log('FolderTube: Attempting to inject sidebar UI...');
   
   // Find the guide (sidebar) section
   const guide = document.querySelector('#guide-inner-content');
   if (!guide) {
-    console.log('FolderTube: Guide not found, retrying...');
     return false;
   }
 
   // Check if already injected
   if (document.getElementById(CONTAINER_ID)) {
-    console.log('FolderTube: Sidebar UI already injected');
     return true;
   }
 
@@ -31,7 +27,6 @@ function injectSidebarUI() {
   const subscriptionsSection = guide.querySelector('#sections > ytd-guide-section-renderer:nth-child(2)');
   
   if (!subscriptionsSection) {
-    console.log('FolderTube: Subscriptions section not found, retrying...');
     return false;
   }
 
@@ -52,7 +47,6 @@ function injectSidebarUI() {
     const root = ReactDOM.createRoot(container);
     root.render(<SidebarFolderSection />);
     
-    console.log('FolderTube: Sidebar UI injected successfully');
     return true;
   } catch (error) {
     console.error('FolderTube: Failed to mount sidebar React app:', error);
@@ -94,7 +88,6 @@ function setupSidebarMutationObserver() {
     const guide = document.querySelector('#guide-inner-content');
     
     if (guide && !containerExists) {
-      console.log('FolderTube: Re-injecting sidebar after navigation');
       attemptSidebarInjection();
     }
   });
@@ -106,7 +99,6 @@ function setupSidebarMutationObserver() {
       childList: true,
       subtree: true
     });
-    console.log('FolderTube: Sidebar MutationObserver attached');
   } else {
     // Retry attaching observer
     setTimeout(setupSidebarMutationObserver, 1000);
@@ -114,17 +106,13 @@ function setupSidebarMutationObserver() {
 }
 
 // Start injection when DOM is ready
-console.log('FolderTube: Document readyState:', document.readyState);
 
 if (document.readyState === 'loading') {
-  console.log('FolderTube: Waiting for DOMContentLoaded...');
   document.addEventListener('DOMContentLoaded', () => {
-    console.log('FolderTube: DOMContentLoaded fired');
     attemptSidebarInjection();
     setupSidebarMutationObserver();
   });
 } else {
-  console.log('FolderTube: Document already loaded, injecting sidebar immediately');
   attemptSidebarInjection();
   setupSidebarMutationObserver();
 }

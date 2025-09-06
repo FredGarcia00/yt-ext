@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm create:*)",
+      "Bash(mv:*)",
+      "Bash(true)",
+      "Bash(rmdir:*)",
+      "Bash(npm install)",
+      "Bash(npm install:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm run build:*)",
+      "Bash(rm:*)",
+      "Bash(cp:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(python3:*)",
+      "Bash(npm run:*)",
+      "Bash(npx tsc:*)",
+      "Bash(cd:*)",
+      "Bash(cd:*)",
+      "Bash(tsc:*)",
+      "Bash(touch:*)",
+      "Bash(cd:*)",
+      "Bash(cd:*)",
+      "Bash(cd:*)",
+      "Bash(cd:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(supabase:*)",
+      "Bash(wget:*)",
+      "Bash(tar:*)",
+      "Bash(sudo mv:*)",
+      "Bash(~/.local/bin/supabase login:*)",
+      "Bash(curl:*)",
+      "Bash(~/.local/bin/supabase functions deploy:*)"
+    ],
+    "deny": [],
+    "defaultMode": "acceptEdits"
+  }
+}

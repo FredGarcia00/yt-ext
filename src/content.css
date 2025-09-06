@@ -1,4 +1,26 @@
 /* FolderTube Chrome Extension Styles */
+
+/* Block Google One Tap popups */
+#credential_picker_container,
+#g_id_onload,
+[id^="g_id_"],
+[class*="g_id_"],
+[class*="g-signin"],
+[data-client_id],
+iframe[src*="accounts.google.com/gsi"],
+iframe[src*="accounts.google.com/o/oauth2"],
+div[aria-label*="Sign in with Google"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  position: absolute !important;
+  left: -9999px !important;
+  top: -9999px !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
 .foldertube-container {
   font-size: 0.875rem;
 }

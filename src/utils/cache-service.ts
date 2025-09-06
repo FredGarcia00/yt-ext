@@ -1,3 +1,5 @@
+import { chromeStorage } from './chrome-api-wrapper';
+
 export interface VideoData {
   id: string;
   title: string;
@@ -5,6 +7,7 @@ export interface VideoData {
   publishedAt: string;
   channelId: string;
   viewCount?: string;
+  duration?: string;
 }
 
 export interface CachedChannelData {
@@ -18,14 +21,15 @@ export interface CachedChannelData {
 
 export class CacheService {
   private static CACHE_PREFIX = 'yt_cache_';
-  private static CACHE_DURATION = 6 * 60 * 60 * 1000; // 6 hours
+  private static CACHE_DURATION = 2 * 60 * 60 * 1000; // 2 hours for faster updates
   private static EMERGENCY_CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days for quota issues
   private static MAX_VIDEOS_PER_CHANNEL = 4; // Increased to match UI
+  // private static AGGRESSIVE_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours for less active channels
   private static PRIORITY_CACHE_PREFIX = 'yt_priority_';
   
   static async getCachedVideos(channelId: string, allowExpired: boolean = false): Promise<VideoData[] | null> {
     const key = `${this.CACHE_PREFIX}${channelId}`;
-    const result = await chrome.storage.local.get(key);
+    const result = await chromeStorage.local.get(key);
     
     if (!result[key]) {
       return null;
@@ -35,7 +39,7 @@ export class CacheService {
     const now = Date.now();
     
     // Check if we're in emergency mode (quota exceeded)
-    const storage = await chrome.storage.local.get(['quotaExceeded']);
+    const storage = await chromeStorage.local.get(['quotaExceeded']);
     const inEmergencyMode = storage.quotaExceeded;
     
     if (now > cached.expiresAt && !allowExpired && !inEmergencyMode) {
@@ -92,18 +96,18 @@ export class CacheService {
     };
     
     const key = `${this.CACHE_PREFIX}${channelId}`;
-    await chrome.storage.local.set({ [key]: cachedData });
+    await chromeStorage.local.set({ [key]: cachedData });
     
     // Track priority channels separately
     if (isPriority) {
       const priorityKey = `${this.PRIORITY_CACHE_PREFIX}${channelId}`;
-      await chrome.storage.local.set({ [priorityKey]: now });
+      await chromeStorage.local.set({ [priorityKey]: now });
     }
   }
   
   static async extendCacheForQuotaIssues(channelId: string): Promise<boolean> {
     const key = `${this.CACHE_PREFIX}${channelId}`;
-    const result = await chrome.storage.local.get(key);
+    const result = await chromeStorage.local.get(key);
     
     if (!result[key]) {
       return false; // No cache to extend
@@ -115,29 +119,35 @@ export class CacheService {
     // Extend cache by emergency duration
     cached.expiresAt = now + this.EMERGENCY_CACHE_DURATION;
     
-    await chrome.storage.local.set({ [key]: cached });
+    await chromeStorage.local.set({ [key]: cached });
     console.log(`FolderTube: Extended cache for ${channelId} due to quota issues`);
     return true;
   }
   
   static async clearChannelCache(channelId: string): Promise<void> {
     const key = `${this.CACHE_PREFIX}${channelId}`;
-    await chrome.storage.local.remove(key);
+    await chromeStorage.local.remove(key);
+  }
+  
+  static async clearAllChannelCaches(channelIds: string[]): Promise<void> {
+    const keys = channelIds.map(id => `${this.CACHE_PREFIX}${id}`);
+    await chromeStorage.local.remove(keys);
+    console.log(`FolderTube: Cleared cache for ${channelIds.length} channels`);
   }
   
   static async clearAllCache(): Promise<void> {
-    const storage = await chrome.storage.local.get();
+    const storage = await chromeStorage.local.get();
     const keysToRemove = Object.keys(storage).filter(key => 
       key.startsWith(this.CACHE_PREFIX)
     );
     
     if (keysToRemove.length > 0) {
-      await chrome.storage.local.remove(keysToRemove);
+      await chromeStorage.local.remove(keysToRemove);
     }
   }
   
   static async getChannelsNeedingRefresh(limit: number = 5): Promise<string[]> {
-    const result = await chrome.storage.local.get(null);
+    const result = await chromeStorage.local.get();
     const now = Date.now();
     const channelsToRefresh: Array<{channelId: string, priority: number, expired: boolean}> = [];
     
@@ -169,7 +179,7 @@ export class CacheService {
   }
   
   static async clearExpiredCache(): Promise<void> {
-    const storage = await chrome.storage.local.get();
+    const storage = await chromeStorage.local.get();
     const now = Date.now();
     const keysToRemove: string[] = [];
     
@@ -183,7 +193,7 @@ export class CacheService {
     }
     
     if (keysToRemove.length > 0) {
-      await chrome.storage.local.remove(keysToRemove);
+      await chromeStorage.local.remove(keysToRemove);
     }
   }
   
@@ -193,7 +203,7 @@ export class CacheService {
     oldestCache: number | null;
     newestCache: number | null;
   }> {
-    const storage = await chrome.storage.local.get();
+    const storage = await chromeStorage.local.get();
     let totalChannels = 0;
     let totalVideos = 0;
     let oldestCache: number | null = null;
@@ -217,12 +227,53 @@ export class CacheService {
     return { totalChannels, totalVideos, oldestCache, newestCache };
   }
   
+  static async batchLoadChannels(channelIds: string[]): Promise<Map<string, VideoData[]>> {
+    const results = new Map<string, VideoData[]>();
+    const uncachedChannels: string[] = [];
+    
+    // First, load all available cached data
+    for (const channelId of channelIds) {
+      const cached = await this.getCachedVideos(channelId);
+      if (cached) {
+        results.set(channelId, cached);
+      } else {
+        uncachedChannels.push(channelId);
+      }
+    }
+    
+    // Batch load uncached channels (max 10 at a time to avoid overwhelming the API)
+    const batchSize = 10;
+    for (let i = 0; i < uncachedChannels.length; i += batchSize) {
+      const batch = uncachedChannels.slice(i, i + batchSize);
+      
+      // Load channels in parallel within each batch
+      const batchPromises = batch.map(async (channelId) => {
+        try {
+          const { YouTubeAPI } = await import('./youtube-api');
+          const result = await YouTubeAPI.getChannelVideos(channelId, '', false, true);
+          results.set(channelId, result.videos);
+        } catch (error) {
+          console.warn(`FolderTube: Failed to load channel ${channelId}:`, error);
+          results.set(channelId, []); // Set empty array for failed channels
+        }
+      });
+      
+      await Promise.all(batchPromises);
+      
+      // Small delay between batches to avoid rate limiting
+      if (i + batchSize < uncachedChannels.length) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+    
+    return results;
+  }
+
   static async smartPreload(folderChannelIds: string[][]): Promise<void> {
     await this.clearExpiredCache();
     
-    // Prioritize channels that are in multiple folders (more likely to be accessed)
+    // Prioritize channels that are in multiple folders
     const channelFrequency = new Map<string, number>();
-    
     folderChannelIds.forEach(channelIds => {
       channelIds.forEach(channelId => {
         channelFrequency.set(channelId, (channelFrequency.get(channelId) || 0) + 1);
@@ -232,43 +283,15 @@ export class CacheService {
     // Sort by frequency (most used channels first)
     const sortedChannels = Array.from(channelFrequency.entries())
       .sort(([,a], [,b]) => b - a)
-      .map(([channelId]) => channelId);
+      .map(([channelId]) => channelId)
+      .slice(0, 20); // Limit to top 20 channels
     
-    // Preload up to 3 most important channels that aren't cached (reduced to conserve API quota)
-    let preloadCount = 0;
-    let apiErrorCount = 0;
-    const maxPreload = 3;
-    const maxApiErrors = 2; // Stop preloading after 2 API errors
-    
-    for (const channelId of sortedChannels) {
-      if (preloadCount >= maxPreload || apiErrorCount >= maxApiErrors) break;
-      
-      const cached = await this.getCachedVideos(channelId);
-      if (!cached) {
-        try {
-          // Import YouTubeAPI dynamically to avoid circular dependency
-          const { YouTubeAPI } = await import('./youtube-api');
-          await YouTubeAPI.getChannelVideos(channelId, '', false, true);
-          preloadCount++;
-          
-          // Small delay to avoid hitting rate limits
-          await new Promise(resolve => setTimeout(resolve, 300));
-        } catch (error) {
-          console.warn(`FolderTube: Failed to preload channel ${channelId}:`, error);
-          apiErrorCount++;
-          
-          // If we're hitting API key or quota issues, stop preloading
-          if (error instanceof Error && 
-              (error.message.includes('API key not configured') || 
-               error.message.includes('quota') || 
-               error.message.includes('403'))) {
-            console.log('FolderTube: Stopping preload due to API limitations');
-            break;
-          }
-        }
-      }
+    // Use batch loading for better performance
+    try {
+      await this.batchLoadChannels(sortedChannels);
+      console.log(`FolderTube: Smart preload completed for ${sortedChannels.length} channels`);
+    } catch (error) {
+      console.error('FolderTube: Smart preload failed:', error);
     }
-    
-    console.log(`FolderTube: Smart preload completed for ${preloadCount} channels (${apiErrorCount} API errors)`);
   }
 }

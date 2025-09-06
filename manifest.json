@@ -1,20 +1,29 @@
 {
   "manifest_version": 3,
-  "name": "FolderTube",
+  "name": "FolderTube Pro",
   "version": "1.0.0",
-  "description": "Organize YouTube subscriptions into folders",
+  "description": "AI-powered YouTube subscription organizer - $3.99/month subscription required",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "permissions": [
     "storage",
     "identity",
-    "alarms"
+    "identity.email",
+    "alarms",
+    "cookies"
   ],
   "background": {
     "service_worker": "src/background.ts"
   },
   "oauth2": {
-    "client_id": "196828008291-4getkfhmahk1kcp0jt4kk0eal745pgah.apps.googleusercontent.com",
+    "client_id": "483559541026-em93ikqnptm4tot5sjga3gtrfsk6tsam.apps.googleusercontent.com",
     "scopes": [
-      "https://www.googleapis.com/auth/youtube.readonly"
+      "https://www.googleapis.com/auth/youtube.readonly",
+      "https://www.googleapis.com/auth/userinfo.email"
     ]
   },
   "host_permissions": [
@@ -22,7 +31,11 @@
     "https://yt3.ggpht.com/*",
     "https://yt4.ggpht.com/*",
     "https://yt5.ggpht.com/*",
-    "https://*.googleusercontent.com/*"
+    "https://*.googleusercontent.com/*",
+    "https://www.googleapis.com/*",
+    "https://*.supabase.co/*",
+    "https://foldertube.com/*",
+    "https://api.foldertube.com/*"
   ],
   "content_scripts": [
     {
@@ -38,8 +51,11 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["assets/*"],
+      "resources": ["assets/*", "icons/*"],
       "matches": ["https://*.youtube.com/*"]
     }
-  ]
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src 'none';"
+  }
 }

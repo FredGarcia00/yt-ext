@@ -1,27 +1,30 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm create:*)",
-      "Bash(mv:*)",
-      "Bash(true)",
-      "Bash(rmdir:*)",
-      "Bash(npm install)",
-      "Bash(npm install:*)",
-      "Bash(npx tailwindcss:*)",
-      "Bash(mkdir:*)",
+      "WebSearch",
       "Bash(npm run build:*)",
-      "Bash(rm:*)",
-      "Bash(cp:*)",
-      "Bash(ls:*)",
-      "Bash(cat:*)",
-      "Bash(python3:*)",
-      "Bash(npm run:*)",
+      "Read(//mnt/c/Users/**)",
+      "Bash(cd:*)",
+      "Bash(cd:*)",
+      "Bash(cd:*)",
+      "Bash(cd:*)",
+      "Bash(cd:*)",
+      "Bash(cd:*)",
+      "WebFetch(domain:buy.stripe.com)",
       "Bash(npx tsc:*)",
+      "Bash(node:*)",
+      "Bash(curl:*)",
+      "Bash(grep:*)",
       "Bash(cd:*)",
       "Bash(cd:*)",
-      "Bash(tsc:*)",
-      "Bash(touch:*)"
+      "Bash(cd:*)",
+      "Bash(git checkout:*)",
+      "Bash(clear)",
+      "Bash(npm run lint)",
+      "Bash(cd:*)",
+      "Bash(cd:*)"
     ],
-    "deny": []
+    "deny": [],
+    "ask": []
   }
 }

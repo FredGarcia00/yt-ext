@@ -138,7 +138,6 @@ export class YouTubeScraper {
           
           // Simple filtering - just find valid image URLs
           // Log all sources found for debugging
-          console.log(`FolderTube: Found ${allSources.length} image sources for ${nameElement?.textContent?.trim()}:`, allSources.slice(0, 5));
           
           const validSources = allSources
             .filter((src): src is string => !!src && src.length > 10)
@@ -155,7 +154,6 @@ export class YouTubeScraper {
                                !src.includes('blank.gif') &&
                                !src.includes('default_avatar.jpg');
               
-              console.log(`FolderTube: Checking URL ${src} - validDomain: ${isValidDomain}, notJunk: ${isNotJunk}`);
               return isValidDomain && isNotJunk;
             });
           
@@ -181,14 +179,9 @@ export class YouTubeScraper {
               avatarUrl = avatarUrl.startsWith('//') ? 'https:' + avatarUrl : 'https://www.youtube.com' + avatarUrl;
             }
             // Log the found avatar URL for debugging
-            console.log(`FolderTube: Avatar found for ${nameElement?.textContent?.trim()}: ${avatarUrl}`);
           } else {
             // No valid avatar found, try fallback options
             const channelName = nameElement.textContent?.trim() || 'Unknown Channel';
-            console.log(`FolderTube: No strict match for ${channelName}, found ${allSources.length} total sources, ${validSources.length} valid YouTube avatar URLs`);
-            if (validSources.length > 0) {
-              console.log('FolderTube: Valid avatar URLs found but filtered:', validSources.slice(0, 2));
-            }
             
             // Last attempt: try any Google/YouTube image URL even if it doesn't match strict criteria
             const anyGoogleUrl = allSources.find(src => 
@@ -198,10 +191,8 @@ export class YouTubeScraper {
             );
             
             if (anyGoogleUrl) {
-              console.log(`FolderTube: Found Google/YouTube URL as last resort for ${channelName}: ${anyGoogleUrl}`);
               avatarUrl = anyGoogleUrl;
             } else {
-              console.log(`FolderTube: Using generated fallback for ${channelName}`);
               avatarUrl = this.generateFallbackAvatar(channelName);
             }
           }

@@ -1,4 +1,5 @@
 import type { ChannelDetails } from './youtube-api';
+import { chromeStorage } from './chrome-api-wrapper';
 
 export interface CacheEntry<T> {
   data: T;
@@ -12,7 +13,7 @@ export class MetadataCache {
 
   static async getCachedChannelDetails(channelId: string): Promise<ChannelDetails | null> {
     const key = `${this.CACHE_PREFIX}${channelId}`;
-    const result = await chrome.storage.local.get(key);
+    const result = await chromeStorage.local.get(key);
     
     if (!result[key]) return null;
     
@@ -20,7 +21,7 @@ export class MetadataCache {
     
     // Check if cache is expired
     if (Date.now() > entry.expiresAt) {
-      await chrome.storage.local.remove(key);
+      await chromeStorage.local.remove(key);
       return null;
     }
     
@@ -35,12 +36,12 @@ export class MetadataCache {
       expiresAt: Date.now() + this.METADATA_CACHE_DURATION
     };
     
-    await chrome.storage.local.set({ [key]: entry });
+    await chromeStorage.local.set({ [key]: entry });
   }
 
   static async getCachedChannelDetailsBatch(channelIds: string[]): Promise<Map<string, ChannelDetails>> {
     const keys = channelIds.map(id => `${this.CACHE_PREFIX}${id}`);
-    const result = await chrome.storage.local.get(keys);
+    const result = await chromeStorage.local.get(keys);
     
     const cached = new Map<string, ChannelDetails>();
     const expiredKeys: string[] = [];
@@ -59,7 +60,7 @@ export class MetadataCache {
     
     // Clean up expired entries
     if (expiredKeys.length > 0) {
-      await chrome.storage.local.remove(expiredKeys);
+      await chromeStorage.local.remove(expiredKeys);
     }
     
     return cached;
@@ -77,11 +78,11 @@ export class MetadataCache {
       };
     }
     
-    await chrome.storage.local.set(entries);
+    await chromeStorage.local.set(entries);
   }
 
   static async clearExpiredMetadata(): Promise<void> {
-    const allKeys = await chrome.storage.local.get();
+    const allKeys = await chromeStorage.local.get();
     const keysToRemove: string[] = [];
     
     for (const [key, value] of Object.entries(allKeys)) {
@@ -94,13 +95,13 @@ export class MetadataCache {
     }
     
     if (keysToRemove.length > 0) {
-      await chrome.storage.local.remove(keysToRemove);
+      await chromeStorage.local.remove(keysToRemove);
       console.log(`FolderTube: Cleared ${keysToRemove.length} expired metadata entries`);
     }
   }
 
   static async getStorageInfo(): Promise<{ used: number; total: number }> {
-    const bytesInUse = await chrome.storage.local.getBytesInUse();
+    const bytesInUse = await chromeStorage.local.getBytesInUse();
     // Chrome's storage.local has a 10MB limit
     const totalBytes = 10 * 1024 * 1024;
     return { used: bytesInUse, total: totalBytes };

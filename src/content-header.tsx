@@ -1,10 +1,64 @@
 import ReactDOM from 'react-dom/client';
 import './content.css';
 import HeaderAISort from './components/HeaderAISort';
+import { YouTubeAPIInterceptor } from './utils/youtube-api-interceptor';
+import { YouTubeEmailVerifier } from './utils/youtube-email-verifier';
+import './utils/subscription-debug';
 
-console.log('FolderTube: Header content script loaded');
 
 const CONTAINER_ID = 'foldertube-header-container';
+
+// Start YouTube API interception for bulletproof account detection
+let headerRoot: ReactDOM.Root | null = null;
+
+function startAccountMonitoring() {
+  
+  // Start YouTube API interception
+  YouTubeAPIInterceptor.startInterception();
+  
+  // Listen for account changes and refresh the UI
+  YouTubeAPIInterceptor.onChannelChange((channelId) => {
+    
+    // Clear email verification cache when account changes
+    YouTubeEmailVerifier.clearCache();
+    
+    // Force refresh the header component to reflect new account data
+    refreshHeaderUI();
+    
+    // Clear all cached data for the UI to reload with new account
+    window.dispatchEvent(new CustomEvent('foldertube:account-changed', {
+      detail: { channelId }
+    }));
+  });
+  
+  // Try immediate channel detection
+  const immediateChannelId = YouTubeAPIInterceptor.getCurrentChannelId();
+  if (immediateChannelId) {
+  } else {
+    // Wait for channel detection with extended timeout
+    YouTubeAPIInterceptor.waitForChannelDetection(10000).then((channelId) => {
+      if (channelId) {
+      } else {
+        console.warn('FolderTube: Using fallback - no channel detection after 10s');
+      }
+    });
+  }
+}
+
+function refreshHeaderUI() {
+  // Remove existing container
+  const existingContainer = document.getElementById(CONTAINER_ID);
+  if (existingContainer && headerRoot) {
+    headerRoot.unmount();
+    existingContainer.remove();
+    headerRoot = null;
+  }
+  
+  // Re-inject header UI
+  setTimeout(() => {
+    attemptHeaderInjection();
+  }, 100);
+}
 
 // Add drag-and-drop functionality to YouTube's native subscriptions
 function addDragToYouTubeSubscriptions() {
@@ -74,18 +128,15 @@ function addDragToYouTubeSubscriptions() {
 }
 
 function injectHeaderUI() {
-  console.log('FolderTube: Attempting to inject header UI...');
   
   // Wait for the header to be available
   const header = document.querySelector('ytd-masthead');
   if (!header) {
-    console.log('FolderTube: Header not found, retrying...');
     return false;
   }
 
   // Check if already injected
   if (document.getElementById(CONTAINER_ID)) {
-    console.log('FolderTube: Header UI already injected');
     return true;
   }
   
@@ -96,7 +147,6 @@ function injectHeaderUI() {
   const searchContainer = header.querySelector('#center, ytd-searchbox');
   
   if (!searchContainer) {
-    console.log('FolderTube: Search container not found, retrying...');
     return false;
   }
 
@@ -113,10 +163,9 @@ function injectHeaderUI() {
   
   // Mount React app
   try {
-    const root = ReactDOM.createRoot(container);
-    root.render(<HeaderAISort />);
+    headerRoot = ReactDOM.createRoot(container);
+    headerRoot.render(<HeaderAISort />);
     
-    console.log('FolderTube: Header UI injected successfully');
     return true;
   } catch (error) {
     console.error('FolderTube: Failed to mount header React app:', error);
@@ -169,7 +218,6 @@ function setupHeaderMutationObserver() {
     const header = document.querySelector('ytd-masthead');
     
     if (header && !containerExists) {
-      console.log('FolderTube: Re-injecting header after navigation');
       attemptHeaderInjection();
     }
     
@@ -184,7 +232,6 @@ function setupHeaderMutationObserver() {
       childList: true,
       subtree: true
     });
-    console.log('FolderTube: Header MutationObserver attached');
   } else {
     // Retry attaching observer
     setTimeout(setupHeaderMutationObserver, 1000);
@@ -197,17 +244,16 @@ window.addEventListener('foldertube:refresh', () => {
 });
 
 // Start injection when DOM is ready
-console.log('FolderTube: Document readyState:', document.readyState);
 
 if (document.readyState === 'loading') {
   console.log('FolderTube: Waiting for DOMContentLoaded...');
   document.addEventListener('DOMContentLoaded', () => {
-    console.log('FolderTube: DOMContentLoaded fired');
+    startAccountMonitoring();
     attemptHeaderInjection();
     setupHeaderMutationObserver();
   });
 } else {
-  console.log('FolderTube: Document already loaded, injecting header immediately');
+  startAccountMonitoring();
   attemptHeaderInjection();
   setupHeaderMutationObserver();
 }

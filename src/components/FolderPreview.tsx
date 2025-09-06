@@ -181,9 +181,23 @@ const FolderPreview: React.FC<FolderPreviewProps> = ({
           setLoadingChannels(prev => new Set(prev).add(channelId));
           
           try {
+            // Format channel ID into a readable name for the API call
+            let fallbackName = 'Channel';
+            if (channelId.startsWith('@')) {
+              fallbackName = channelId.slice(1).replace(/-/g, ' ').replace(/_/g, ' ')
+                .split(' ')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                .join(' ');
+            } else if (!channelId.startsWith('UC') || channelId.length !== 24) {
+              fallbackName = channelId.replace(/-/g, ' ').replace(/_/g, ' ')
+                .split(' ')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                .join(' ');
+            }
+            
             const result = await YouTubeAPI.getChannelVideos(
               channelId,
-              `Channel ${channelId}`, // Fallback name
+              fallbackName,
               false,
               isPremium
             );
@@ -1095,7 +1109,25 @@ const FolderPreview: React.FC<FolderPreviewProps> = ({
                       fontWeight: '600',
                       flex: 1
                     }}>
-                      {channelId}
+                      {(() => {
+                        // Try to format the channel ID into a readable name
+                        if (channelId.startsWith('@')) {
+                          // Handle format: @channelname
+                          return channelId.slice(1).replace(/-/g, ' ').replace(/_/g, ' ')
+                            .split(' ')
+                            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                            .join(' ');
+                        } else if (channelId.startsWith('UC') && channelId.length === 24) {
+                          // This is a YouTube channel ID, show a placeholder
+                          return 'Channel';
+                        } else {
+                          // Try to make it readable
+                          return channelId.replace(/-/g, ' ').replace(/_/g, ' ')
+                            .split(' ')
+                            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                            .join(' ');
+                        }
+                      })()}
                     </span>
                     {onRemoveChannel && (
                       <button

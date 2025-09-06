@@ -4,6 +4,8 @@ import { CacheService } from '../utils/cache-service';
 import FolderPreview from './FolderPreview';
 import CreateFolderModal from './CreateFolderModal';
 import { aiCategorizer } from '../utils/aiCategorizer';
+import { SupabaseAuthService } from '../utils/supabase-auth-service';
+import { YouTubeAccountDetector } from '../utils/youtube-account-detector';
 
 interface Folder {
   id: string;
@@ -27,36 +29,135 @@ const HeaderFolderManager: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [addingToFolderId, setAddingToFolderId] = useState<string | null>(null);
   const [isAISorting, setIsAISorting] = useState(false);
+  const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Load folders from chrome storage
+  // Save folders to Supabase backend ONLY - no local storage fallbacks
+  const saveFoldersToStorage = async (newFolders: Folder[]) => {
     try {
-      chrome.storage.sync.get(['folders'], async (result) => {
-        if (chrome.runtime.lastError) {
-          console.error('FolderTube: Storage error:', chrome.runtime.lastError);
-          setFolders([]);
-          return;
-        }
+      // MUST have authentication to save
+      let auth = await SupabaseAuthService.getCurrentAuth();
+      
+      if (!auth) {
+        console.log('FolderTube: [HeaderFolderManager] No authentication found, attempting to authenticate...');
         
-        if (result.folders) {
-          setFolders(result.folders);
-          
-          // Smart preload videos for folders
-          try {
-            const folderChannelIds = result.folders.map((folder: Folder) => folder.channelIds);
-            await CacheService.smartPreload(folderChannelIds);
-          } catch (error) {
-            console.log('FolderTube: Smart preload failed:', error);
-          }
+        const authResult = await SupabaseAuthService.authenticate();
+        if (authResult.success && authResult.email && authResult.channelId) {
+          auth = {
+            email: authResult.email,
+            channelId: authResult.channelId,
+            channelName: authResult.channelName || 'Unknown'
+          };
+          console.log('FolderTube: [HeaderFolderManager] ✅ Authentication successful');
         } else {
-          setFolders([]);
+          console.error('FolderTube: [HeaderFolderManager] ❌ Authentication failed:', authResult.error);
+          throw new Error(`Authentication required: ${authResult.error}`);
         }
+      }
+      
+      console.log('FolderTube: [HeaderFolderManager] Saving folders to Supabase for:', auth.email);
+      
+      const result = await SupabaseAuthService.saveFolders(newFolders, {
+        email: auth.email,
+        channelId: auth.channelId
       });
+      
+      if (!result.success) {
+        console.error('FolderTube: [HeaderFolderManager] ❌ Failed to save folders to Supabase:', result.error);
+        throw new Error(`Backend save failed: ${result.error}`);
+      } else {
+        console.log('FolderTube: [HeaderFolderManager] ✅ Folders saved to Supabase backend successfully');
+      }
     } catch (error) {
-      console.error('FolderTube: Error accessing storage:', error);
+      console.error('FolderTube: [HeaderFolderManager] ❌ Save error:', error);
+      // Show error to user instead of silent failure
+      alert(`Failed to save folders: ${error instanceof Error ? error.message : 'Unknown error'}. Please check your internet connection and try again.`);
+      throw error;
+    }
+  };
+
+  // Load folders from Supabase for current account
+  const loadFoldersForCurrentAccount = async () => {
+    try {
+      // MUST have authentication to use the extension
+      const auth = await SupabaseAuthService.getCurrentAuth();
+      if (!auth) {
+        console.warn('FolderTube: [HeaderFolderManager] No authentication - cannot load folders');
+        setFolders([]);
+        return;
+      }
+
+      console.log('FolderTube: [HeaderFolderManager] Loading folders from Supabase for:', auth.email);
+      const supabaseData = await SupabaseAuthService.loadFolders();
+      
+      if (supabaseData.success && supabaseData.folders) {
+        // Convert Supabase format to component format
+        const convertedFolders = supabaseData.folders.map((folder: any) => ({
+          id: folder.id || folder.folder_id || `folder-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          name: folder.folder_name || folder.name,
+          channelIds: folder.channel_ids || folder.channelIds || []
+        }));
+        
+        setFolders(convertedFolders);
+        console.log('FolderTube: [HeaderFolderManager] ✅ Loaded', convertedFolders.length, 'folders from Supabase');
+        
+        // Smart preload videos for folders
+        try {
+          const folderChannelIds = convertedFolders.map((folder: Folder) => folder.channelIds);
+          await CacheService.smartPreload(folderChannelIds);
+        } catch (error) {
+          console.warn('FolderTube: Smart preload failed:', error);
+        }
+      } else {
+        console.warn('FolderTube: [HeaderFolderManager] Failed to load from Supabase:', supabaseData.error);
+        setFolders([]);
+      }
+    } catch (error) {
+      console.error('FolderTube: [HeaderFolderManager] ❌ Error loading folders:', error);
       setFolders([]);
     }
-  }, []);
+  };
+
+  useEffect(() => {
+    // Initial load
+    const initialAccountId = YouTubeAccountDetector.getCurrentAccountId();
+    setCurrentAccountId(initialAccountId);
+    loadFoldersForCurrentAccount();
+
+    // Set up account change detection
+    const handleAccountChange = (newAccountId: string | null) => {
+      console.log('FolderTube: [HeaderFolderManager] 🔄 Account changed:', { from: currentAccountId, to: newAccountId });
+      
+      if (newAccountId !== currentAccountId) {
+        setCurrentAccountId(newAccountId);
+        
+        // Clear current folders immediately to prevent bleeding
+        setFolders([]);
+        
+        // Clear cached authentication for account isolation
+        SupabaseAuthService.clearAuth();
+        
+        // Clear subscription cache in background
+        chrome.runtime.sendMessage({ type: 'clearSubscriptionCache' }, () => {
+          console.log('FolderTube: [HeaderFolderManager] Cleared subscription cache');
+        });
+        
+        // Load folders for new account after a brief delay
+        setTimeout(() => {
+          loadFoldersForCurrentAccount();
+        }, 100);
+      }
+    };
+
+    // Start monitoring account changes
+    YouTubeAccountDetector.startMonitoring();
+    YouTubeAccountDetector.onAccountChange(handleAccountChange);
+
+    // Cleanup on unmount
+    return () => {
+      YouTubeAccountDetector.stopMonitoring();
+      YouTubeAccountDetector.removeAccountChangeCallback(handleAccountChange);
+    };
+  }, [currentAccountId]);
 
   useEffect(() => {
     // Load subscriptions for folder functionality only
@@ -101,7 +202,7 @@ const HeaderFolderManager: React.FC = () => {
     };
   }, []);
 
-  const createFolder = (name: string, selectedChannels: string[] = []) => {
+  const createFolder = async (name: string, selectedChannels: string[] = []) => {
     const newFolder: Folder = {
       id: `folder-${Date.now()}`,
       name: name,
@@ -111,38 +212,36 @@ const HeaderFolderManager: React.FC = () => {
     const updatedFolders = [...folders, newFolder];
     setFolders(updatedFolders);
     
-    // Save to chrome storage
-    try {
-      chrome.storage.sync.set({ folders: updatedFolders }, () => {
-        if (chrome.runtime.lastError) {
-          console.error('FolderTube: Failed to save new folder:', chrome.runtime.lastError);
-        }
-      });
-    } catch (error) {
-      console.error('FolderTube: Error saving new folder:', error);
-    }
+    // Save to chrome storage (using account-specific key)
+    await saveFoldersToStorage(updatedFolders);
   };
 
-  const addChannelsToFolder = (folderId: string, newChannelIds: string[]) => {
+  const addChannelsToFolder = async (folderId: string, newChannelIds: string[]) => {
     const folderIndex = folders.findIndex(f => f.id === folderId);
     if (folderIndex !== -1) {
-      const updatedFolders = [...folders];
-      // Add only channels that aren't already in the folder
-      const existingIds = new Set(updatedFolders[folderIndex].channelIds);
-      const channelsToAdd = newChannelIds.filter(id => !existingIds.has(id));
-      updatedFolders[folderIndex].channelIds.push(...channelsToAdd);
+      // First, remove these channels from any other folders they might be in
+      const updatedFolders = folders.map(folder => {
+        if (folder.id === folderId) {
+          // Add only channels that aren't already in the target folder
+          const existingIds = new Set(folder.channelIds);
+          const channelsToAdd = newChannelIds.filter(id => !existingIds.has(id));
+          return {
+            ...folder,
+            channelIds: [...folder.channelIds, ...channelsToAdd]
+          };
+        } else {
+          // Remove the channels from any other folder
+          return {
+            ...folder,
+            channelIds: folder.channelIds.filter(id => !newChannelIds.includes(id))
+          };
+        }
+      });
       
       setFolders(updatedFolders);
       
-      try {
-        chrome.storage.sync.set({ folders: updatedFolders }, () => {
-          if (chrome.runtime.lastError) {
-            console.error('FolderTube: Failed to add channels to folder:', chrome.runtime.lastError);
-          }
-        });
-      } catch (error) {
-        console.error('FolderTube: Error adding channels to folder:', error);
-      }
+      // Save to chrome storage (using account-specific key)
+      await saveFoldersToStorage(updatedFolders);
     }
   };
 
@@ -159,7 +258,7 @@ const HeaderFolderManager: React.FC = () => {
     }
   };
 
-  const handleEditFolderName = (folderId: string, newName: string) => {
+  const handleEditFolderName = async (folderId: string, newName: string) => {
     const folderIndex = folders.findIndex(f => f.id === folderId);
     if (folderIndex !== -1) {
       const newFolders = [...folders];
@@ -171,45 +270,29 @@ const HeaderFolderManager: React.FC = () => {
         setSelectedFolder({ ...selectedFolder, name: newName });
       }
       
-      try {
-        chrome.storage.sync.set({ folders: newFolders }, () => {
-          if (chrome.runtime.lastError) {
-            console.error('FolderTube: Failed to rename folder:', chrome.runtime.lastError);
-          }
-        });
-      } catch (error) {
-        console.error('FolderTube: Error renaming folder:', error);
-      }
+      // Save to chrome storage (using account-specific key)
+      await saveFoldersToStorage(newFolders);
     }
   };
 
-  const removeChannelFromFolder = (folderId: string, channelId: string) => {
+  const removeChannelFromFolder = async (folderId: string, channelId: string) => {
     const folderIndex = folders.findIndex(f => f.id === folderId);
     if (folderIndex !== -1) {
       const newFolders = [...folders];
       newFolders[folderIndex].channelIds = newFolders[folderIndex].channelIds.filter(id => id !== channelId);
       setFolders(newFolders);
       
-      try {
-        chrome.storage.sync.set({ folders: newFolders }, () => {
-          if (chrome.runtime.lastError) {
-            console.error('FolderTube: Failed to remove channel:', chrome.runtime.lastError);
-          }
-        });
-      } catch (error) {
-        console.error('FolderTube: Error removing channel:', error);
-      }
+      // Save to chrome storage (using account-specific key)
+      await saveFoldersToStorage(newFolders);
     }
   };
 
   const handleAISort = async () => {
     if (isAISorting || channels.length === 0) {
-      console.log('FolderTube: AI Sort blocked - isAISorting:', isAISorting, 'channels.length:', channels.length);
       return;
     }
     
     setIsAISorting(true);
-    console.log('FolderTube: Starting AI categorization with', channels.length, 'channels...');
     
     try {
       // Check if user has premium (for now, assume all users can use AI features)
@@ -217,7 +300,6 @@ const HeaderFolderManager: React.FC = () => {
       const maxCategories = isPremium ? 20 : 5;
       
       // For now, skip API calls and use simple name-based categorization for testing
-      console.log('FolderTube: Using simple name-based categorization for testing');
       
       const channelMetadata = channels.map(channel => ({
         id: channel.id,
@@ -227,11 +309,9 @@ const HeaderFolderManager: React.FC = () => {
         keywords: [channel.name.toLowerCase()]
       }));
       
-      console.log('FolderTube: Created metadata for', channelMetadata.length, 'channels');
       
       // Categorize channels using AI
       const categorizedChannels = aiCategorizer.categorizeChannels(channelMetadata);
-      console.log('FolderTube: Categorization results:', categorizedChannels);
       
       // Create folders for non-empty categories
       const newFolders: Folder[] = [];
@@ -251,7 +331,6 @@ const HeaderFolderManager: React.FC = () => {
           };
           newFolders.push(folder);
           categoryCount++;
-          console.log('FolderTube: Created folder:', folderName, 'with', channelIds.length, 'channels');
         }
       }
       
@@ -264,13 +343,10 @@ const HeaderFolderManager: React.FC = () => {
           channelIds: uncategorizedChannels
         };
         newFolders.push(folder);
-        console.log('FolderTube: Created uncategorized folder with', uncategorizedChannels.length, 'channels');
       }
       
-      console.log('FolderTube: Total created', newFolders.length, 'AI folders');
       
       if (newFolders.length === 0) {
-        console.log('FolderTube: No folders created - all channels may be uncategorized');
         alert('No categories found for your channels. Try subscribing to channels with more specific content.');
         return;
       }
@@ -278,21 +354,10 @@ const HeaderFolderManager: React.FC = () => {
       // Add new folders to existing ones
       const updatedFolders = [...folders, ...newFolders];
       setFolders(updatedFolders);
-      console.log('FolderTube: Updated folders state with', updatedFolders.length, 'total folders');
       
-      // Save to storage
-      try {
-        chrome.storage.sync.set({ folders: updatedFolders }, () => {
-          if (chrome.runtime.lastError) {
-            console.error('FolderTube: Failed to save AI folders:', chrome.runtime.lastError);
-          } else {
-            console.log('FolderTube: Successfully saved', updatedFolders.length, 'folders to storage');
-            alert(`Successfully created ${newFolders.length} AI-organized folders!`);
-          }
-        });
-      } catch (error) {
-        console.error('FolderTube: Error saving AI folders:', error);
-      }
+      // Save to chrome storage (using account-specific key)
+      await saveFoldersToStorage(updatedFolders);
+      alert(`Successfully created ${newFolders.length} AI-organized folders!`);
       
     } catch (error) {
       console.error('FolderTube: AI categorization failed:', error);
@@ -415,7 +480,6 @@ const HeaderFolderManager: React.FC = () => {
             <button
               key={folder.id}
               onMouseEnter={() => {
-                console.log('FolderTube: Hovering over folder:', folder.name);
                 setSelectedFolder(folder);
                 setPreviewVisible(true);
                 if (hoverTimeout) {
@@ -424,7 +488,6 @@ const HeaderFolderManager: React.FC = () => {
                 }
               }}
               onMouseLeave={() => {
-                console.log('FolderTube: Mouse left folder:', folder.name);
                 const timeout = setTimeout(() => {
                   closeFolderPreview();
                 }, 300);
@@ -519,14 +582,12 @@ const HeaderFolderManager: React.FC = () => {
           onClose={closeFolderPreview}
           onEditFolderName={handleEditFolderName}
           onMouseEnter={() => {
-            console.log('FolderTube: Mouse entered preview modal');
             if (hoverTimeout) {
               clearTimeout(hoverTimeout);
               setHoverTimeout(null);
             }
           }}
           onMouseLeave={() => {
-            console.log('FolderTube: Mouse left preview modal');
             const timeout = setTimeout(() => {
               closeFolderPreview();
             }, 200);
