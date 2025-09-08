@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FolderTube Auth Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        button { padding: 10px 20px; margin: 10px; font-size: 16px; }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+        #results { margin-top: 20px; padding: 10px; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <h1>FolderTube Authentication Test</h1>
+    
+    <button onclick="testOAuth()">Test OAuth Configuration</button>
+    <button onclick="testFullAuth()">Test Full Server Authentication</button>
+    <button onclick="clearResults()">Clear Results</button>
+    
+    <div id="results"></div>
+
+    <script>
+        function log(message, type = 'info') {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = type;
+            div.innerHTML = `<strong>[${new Date().toLocaleTimeString()}]</strong> ${message}`;
+            results.appendChild(div);
+            results.scrollTop = results.scrollHeight;
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        // Test OAuth configuration
+        async function testOAuth() {
+            log('Testing OAuth configuration...', 'info');
+            
+            try {
+                const response = await chrome.runtime.sendMessage({
+                    type: 'testOAuth'
+                });
+                
+                if (response.success) {
+                    log('✅ OAuth test successful!', 'success');
+                    log(`Has Token: ${response.hasToken}`, 'success');
+                    if (response.tokenLength) {
+                        log(`Token Length: ${response.tokenLength}`, 'success');
+                    }
+                    if (response.userEmail) {
+                        log(`User Email: ${response.userEmail}`, 'success');
+                    }
+                } else {
+                    log('❌ OAuth test failed: ' + response.error, 'error');
+                }
+            } catch (error) {
+                log('❌ OAuth test error: ' + error.message, 'error');
+            }
+        }
+
+        // Test full server authentication
+        async function testFullAuth() {
+            log('Testing full server authentication...', 'info');
+            
+            try {
+                const response = await chrome.runtime.sendMessage({
+                    type: 'authenticateUser'
+                });
+                
+                if (response.success) {
+                    log('✅ Full authentication successful!', 'success');
+                    log(`Email: ${response.email}`, 'success');
+                    log(`Channel ID: ${response.channelId}`, 'success');
+                    log(`Has Subscription: ${response.hasSubscription}`, 'success');
+                    log('🎉 Account bleeding issue resolved - server-side validation working!', 'success');
+                } else {
+                    log('❌ Full authentication failed: ' + response.error, 'error');
+                }
+            } catch (error) {
+                log('❌ Full authentication error: ' + error.message, 'error');
+            }
+        }
+
+        log('Test page loaded. Extension ID: ' + chrome.runtime.id, 'info');
+    </script>
+</body>
+</html>

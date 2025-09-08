@@ -12,15 +12,17 @@
   "permissions": [
     "storage",
     "identity",
-    "identity.email",
     "alarms",
-    "cookies"
+    "cookies",
+    "scripting",
+    "activeTab",
+    "tabs"
   ],
   "background": {
     "service_worker": "src/background.ts"
   },
   "oauth2": {
-    "client_id": "483559541026-em93ikqnptm4tot5sjga3gtrfsk6tsam.apps.googleusercontent.com",
+    "client_id": "196828008291-4getkfhmahk1kcp0jt4kk0eal745pgah.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/youtube.readonly",
       "https://www.googleapis.com/auth/userinfo.email"

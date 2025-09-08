@@ -3,6 +3,8 @@ import './content.css';
 import HeaderAISort from './components/HeaderAISort';
 import { YouTubeAPIInterceptor } from './utils/youtube-api-interceptor';
 import { YouTubeEmailVerifier } from './utils/youtube-email-verifier';
+import { SupabaseAuthService } from './utils/supabase-auth-service';
+import { YouTubeAccountDetector } from './utils/youtube-account-detector';
 import './utils/subscription-debug';
 
 
@@ -12,6 +14,9 @@ const CONTAINER_ID = 'foldertube-header-container';
 let headerRoot: ReactDOM.Root | null = null;
 
 function startAccountMonitoring() {
+  
+  // Start YouTube account monitoring to prevent account bleeding
+  SupabaseAuthService.startAccountChangeMonitoring();
   
   // Start YouTube API interception
   YouTubeAPIInterceptor.startInterception();
@@ -237,6 +242,23 @@ function setupHeaderMutationObserver() {
     setTimeout(setupHeaderMutationObserver, 1000);
   }
 }
+
+// Expose YouTubeAccountDetector globally for background script access
+(window as any).YouTubeAccountDetector = YouTubeAccountDetector;
+
+// Add message listener for background script communication
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  if (request.type === 'getCurrentYouTubeChannel') {
+    try {
+      const channelId = YouTubeAccountDetector.getCurrentPageChannelId();
+      sendResponse({ channelId });
+    } catch (error) {
+      console.error('Content script: Error getting YouTube channel:', error);
+      sendResponse({ channelId: null, error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+    return true; // Keep message channel open for async response
+  }
+});
 
 // Listen for refresh events from HeaderFolderManager
 window.addEventListener('foldertube:refresh', () => {

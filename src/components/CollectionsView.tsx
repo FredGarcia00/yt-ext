@@ -91,10 +91,9 @@ const CollectionsView: React.FC<CollectionsViewProps> = ({ onClose }) => {
             channelName: authResult.channelName || 'Unknown'
           };
         } else {
-          console.error('FolderTube: [Collections] Authentication failed:', authResult.error);
-          // Still save to local storage even if Supabase save fails
-          await chrome.storage.local.set({ folders: foldersToSave });
-          return;
+          console.error('FolderTube: [Collections] ❌ SECURITY VIOLATION: Authentication failed - blocking folder save');
+          console.error('FolderTube: [Collections] Auth error:', authResult.error);
+          throw new Error('Authentication required to save folders');
         }
       } else {
       }
@@ -106,20 +105,22 @@ const CollectionsView: React.FC<CollectionsViewProps> = ({ onClose }) => {
       });
       
       if (result.success) {
-      } else {
-        console.error('FolderTube: [Collections] Failed to save folders to Supabase:', result.error);
-        // Save to local storage as fallback
+        // Only save to local storage after successful authenticated backend save
         await chrome.storage.local.set({ folders: foldersToSave });
-        console.log('FolderTube: [Collections] Saved to local storage as fallback');
+        console.log('FolderTube: [Collections] Folders saved successfully (backend + local cache)');
+      } else {
+        console.error('FolderTube: [Collections] ❌ SECURITY VIOLATION: Backend save failed - blocking local save');
+        console.error('FolderTube: [Collections] Backend error:', result.error);
+        throw new Error('Authenticated backend save required - no local fallback allowed');
       }
     } catch (error) {
-      console.error('FolderTube: [Collections] Failed to save folders:', error);
-      // Save to local storage as fallback
-      try {
-        await chrome.storage.local.set({ folders: foldersToSave });
-      } catch (storageError) {
-        console.error('FolderTube: [Collections] Failed to save to local storage:', storageError);
-      }
+      console.error('FolderTube: [Collections] ❌ SECURITY VIOLATION: Folder save completely failed');
+      console.error('FolderTube: [Collections] Error details:', error);
+      
+      // SECURITY FIX: No local storage fallback on authentication/backend failure
+      // This prevents users from bypassing authentication by saving folders locally
+      
+      throw error; // Re-throw to notify caller of failure
     }
   };
 
@@ -173,16 +174,15 @@ const CollectionsView: React.FC<CollectionsViewProps> = ({ onClose }) => {
           channelIds: folder.channel_ids || folder.channelIds || []
         }));
       } else {
-        // Fallback to local storage
-        console.log('FolderTube: [Collections] Supabase load failed, checking local storage');
-        const localData = await chrome.storage.local.get(['folders']);
+        // SECURITY FIX: No fallback to local storage - authentication required
+        console.error('FolderTube: [Collections] ❌ SECURITY: Authentication required to access folders');
+        console.error('FolderTube: [Collections] Backend failure reason:', backendResult.error || 'Unknown error');
         
-        if (localData.folders && localData.folders.length > 0) {
-          console.log('FolderTube: [Collections] Loaded folders from local storage:', localData.folders.length);
-          loadedFolders = localData.folders;
-        } else {
-          console.log('FolderTube: [Collections] No folders found in local storage either');
-        }
+        // Clear any existing local folders to prevent account bleeding
+        await chrome.storage.local.remove(['folders']);
+        console.log('FolderTube: [Collections] Cleared local storage for security');
+        
+        loadedFolders = [];
       }
       
       console.log('FolderTube: [Collections] Setting folders:', loadedFolders);

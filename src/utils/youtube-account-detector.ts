@@ -1,575 +1,377 @@
 /**
- * YouTube Account Detector
- * Detects the current YouTube account using URL and cookie monitoring
- * Avoids fragile DOM parsing in favor of reliable browser APIs
+ * YouTube Account Detector - Production Ready
+ * Detects the current YouTube channel from the page (not from OAuth)
+ * This is critical for preventing account bleeding
  */
+
 export class YouTubeAccountDetector {
-  private static currentAccountId: string | null = null;
-  private static currentChannelId: string | null = null;
-  private static accountChangeCallbacks: ((accountId: string | null) => void)[] = [];
-  private static isMonitoring = false;
-  private static cookieCheckInterval: number | null = null;
+  private static cachedChannelId: string | null = null;
+  private static cacheTimestamp: number = 0;
+  private static readonly CACHE_DURATION = 5000; // 5 seconds cache
 
   /**
-   * Get current YouTube channel ID (CRITICAL for preventing account bleeding)
-   * This detects the actual channel that's currently active, not just the session
+   * Get the current YouTube channel ID from the page
+   * Uses multiple detection methods for reliability
    */
-  static getCurrentChannelId(): string | null {
-    try {
-      console.log('🔍 [CHANNEL DETECT] Starting current YouTube channel detection...');
-      
-      // Method 1: Check URL for channel context (most reliable)
-      const urlChannelId = this.getChannelIdFromUrl();
-      if (urlChannelId) {
-        console.log('🔍 [CHANNEL DETECT] Found channel in URL:', urlChannelId.substring(0, 15) + '...');
-        this.currentChannelId = urlChannelId;
-        return urlChannelId;
-      }
-      
-      // Method 2: Check page content for channel indicators
-      const pageChannelId = this.getChannelIdFromPage();
-      if (pageChannelId) {
-        console.log('🔍 [CHANNEL DETECT] Found channel in page:', pageChannelId.substring(0, 15) + '...');
-        this.currentChannelId = pageChannelId;
-        return pageChannelId;
-      }
-      
-      // Method 3: Check stored/cached channel
-      if (this.currentChannelId) {
-        console.log('🔍 [CHANNEL DETECT] Using cached channel:', this.currentChannelId.substring(0, 15) + '...');
-        return this.currentChannelId;
-      }
-      
-      console.log('🔍 [CHANNEL DETECT] ❌ Could not detect current YouTube channel');
-      return null;
-      
-    } catch (error) {
-      console.error('🔍 [CHANNEL DETECT] Error detecting channel:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Get current YouTube account identifier using reliable methods
-   * Priority: URL authuser -> Cookie SAPISID -> Channel detection
-   */
-  static getCurrentAccountId(): string | null {
-    try {
-      // Method 1: Check URL authuser parameter (most reliable for account switching)
-      const authUser = this.getAuthUserFromUrl();
-      if (authUser !== null) {
-        const accountId = `authuser_${authUser}`;
-        return accountId;
-      }
-
-      // Method 2: Use cookie-based detection (persistent)
-      const cookieAccount = this.getAccountFromCookies();
-      if (cookieAccount) {
-        return cookieAccount;
-      }
-
-      // Method 3: Enhanced Chrome API detection (run async in background)
-      this.tryEnhancedDetection(); // Run async in background
-
-      // Method 4: Fallback to basic URL-based detection
-      const urlAccount = this.getAccountFromUrlParams();
-      if (urlAccount) {
-        return urlAccount;
-      }
-
-      console.warn('FolderTube: [AccountDetector] Could not detect YouTube account');
-      return null;
-
-    } catch (error) {
-      console.error('FolderTube: [AccountDetector] Error detecting account:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Get authuser parameter from URL (primary method for account switching)
-   */
-  private static getAuthUserFromUrl(): number | null {
-    try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const authUser = urlParams.get('authuser');
-      if (authUser !== null && !isNaN(Number(authUser))) {
-        return Number(authUser);
-      }
-      return null;
-    } catch (error) {
-      console.error('FolderTube: [AccountDetector] Error getting authuser from URL:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Get account identifier from YouTube cookies (reliable method)
-   */
-  private static getAccountFromCookies(): string | null {
-    try {
-      const cookies = document.cookie;
-      
-      // Check for SAPISID cookie (most reliable for YouTube account identification)
-      if (cookies.includes('SAPISID=')) {
-        const sapisidMatch = cookies.match(/SAPISID=([^;]+)/);
-        if (sapisidMatch && sapisidMatch[1]) {
-          const sapisid = sapisidMatch[1];
-          const hash = this.simpleHash(sapisid);
-          return `sapisid_${hash}`;
-        }
-      }
-
-      // Fallback: Check for HSID cookie
-      if (cookies.includes('HSID=')) {
-        const hsidMatch = cookies.match(/HSID=([^;]+)/);
-        if (hsidMatch && hsidMatch[1]) {
-          const hsid = hsidMatch[1];
-          const hash = this.simpleHash(hsid);
-          return `hsid_${hash}`;
-        }
-      }
-
-      return null;
-    } catch (error) {
-      console.error('FolderTube: [AccountDetector] Error getting account from cookies:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Enhanced account detection using Chrome API (async background method)
-   */
-  private static async tryEnhancedDetection(): Promise<void> {
-    try {
-      const account = await this.getAccountFromChromeAPI();
-      if (account) {
-        // Update cached account if we found one
-        if (account !== this.currentAccountId) {
-          this.currentAccountId = account;
-          // Notify callbacks of the enhanced detection
-          this.accountChangeCallbacks.forEach(callback => {
-            try {
-              callback(account);
-            } catch (error) {
-              console.error('FolderTube: [AccountDetector] Error in enhanced detection callback:', error);
-            }
-          });
-        }
-      } else {
-      }
-    } catch (error) {
-      console.error('FolderTube: [AccountDetector] Enhanced detection error:', error);
-    }
-  }
-
-  /**
-   * Get account identifier using Chrome API cookie access (more reliable method)
-   */
-  private static async getAccountFromChromeAPI(): Promise<string | null> {
-    try {
-      if (typeof chrome === 'undefined' || !chrome.cookies) {
-        console.warn('FolderTube: [AccountDetector] Chrome API not available in this context');
-        return null;
-      }
-
-
-      // Try to get SAPISID cookie via Chrome API
-      const sapisidCookie = await new Promise<chrome.cookies.Cookie | null>((resolve) => {
-        chrome.cookies.get({
-          url: 'https://www.youtube.com',
-          name: 'SAPISID'
-        }, (cookie) => {
-          if (chrome.runtime.lastError) {
-            console.warn('FolderTube: [AccountDetector] Chrome API SAPISID error:', chrome.runtime.lastError);
-            resolve(null);
-          } else {
-            resolve(cookie);
-          }
-        });
-      });
-
-      if (sapisidCookie && sapisidCookie.value) {
-        const hash = this.simpleHash(sapisidCookie.value);
-        return `chromeapi_sapisid_${hash}`;
-      }
-
-      // Fallback: Try HSID via Chrome API  
-      const hsidCookie = await new Promise<chrome.cookies.Cookie | null>((resolve) => {
-        chrome.cookies.get({
-          url: 'https://www.youtube.com',
-          name: 'HSID'
-        }, (cookie) => {
-          if (chrome.runtime.lastError) {
-            console.warn('FolderTube: [AccountDetector] Chrome API HSID error:', chrome.runtime.lastError);
-            resolve(null);
-          } else {
-            resolve(cookie);
-          }
-        });
-      });
-
-      if (hsidCookie && hsidCookie.value) {
-        const hash = this.simpleHash(hsidCookie.value);
-        return `chromeapi_hsid_${hash}`;
-      }
-
-      console.warn('FolderTube: [AccountDetector] Chrome API could not find usable cookies');
-      return null;
-
-    } catch (error) {
-      console.error('FolderTube: [AccountDetector] Error with Chrome API cookie access:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Get account identifier from URL parameters (fallback method)
-   */
-  private static getAccountFromUrlParams(): string | null {
-    try {
-      const url = window.location.href;
-      
-      // Check for user-specific patterns in YouTube URLs
-      if (url.includes('/channel/')) {
-        const channelMatch = url.match(/\/channel\/([^?\/]+)/);
-        if (channelMatch && channelMatch[1]) {
-          return `channel_${channelMatch[1].substring(0, 8)}`;
-        }
-      }
-
-      // Check for other YouTube-specific URL patterns
-      if (url.includes('/c/')) {
-        const customMatch = url.match(/\/c\/([^?\/]+)/);
-        if (customMatch && customMatch[1]) {
-          return `custom_${this.simpleHash(customMatch[1])}`;
-        }
-      }
-
-      return null;
-    } catch (error) {
-      console.error('FolderTube: [AccountDetector] Error getting account from URL params:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Start monitoring for account changes - NUCLEAR VERSION with aggressive detection
-   */
-  static startMonitoring(): void {
-    if (this.isMonitoring) {
-      return;
+  static getCurrentPageChannelId(): string | null {
+    // Check cache first
+    if (this.cachedChannelId && Date.now() - this.cacheTimestamp < this.CACHE_DURATION) {
+      return this.cachedChannelId;
     }
 
-    this.isMonitoring = true;
-    this.currentAccountId = this.getCurrentAccountId();
+    let channelId: string | null = null;
 
-    console.log('💥 Starting NUCLEAR YouTube account monitoring...');
-
-    // Listen for URL changes (popstate events)
-    window.addEventListener('popstate', this.handleLocationChange.bind(this));
-    
-    // Listen for pushState/replaceState (YouTube SPA navigation)
-    this.interceptHistoryChanges();
-
-    // NUCLEAR OPTION: Aggressive polling to catch account switches
-    this.cookieCheckInterval = window.setInterval(() => {
-      this.checkForAccountChange();
-    }, 1000); // Check every second
-
-    // Additional detection methods
-    this.startAdvancedMonitoring();
-
-  }
-
-  /**
-   * Stop monitoring for account changes
-   */
-  static stopMonitoring(): void {
-    if (!this.isMonitoring) {
-      return;
+    // Method 1: Check if we're on a channel page URL
+    channelId = this.getChannelFromURL();
+    if (channelId) {
+      console.log('YouTubeAccountDetector: Found channel from URL:', channelId);
+      this.updateCache(channelId);
+      return channelId;
     }
 
-    this.isMonitoring = false;
-
-    window.removeEventListener('popstate', this.handleLocationChange.bind(this));
-    
-    if (this.cookieCheckInterval) {
-      clearInterval(this.cookieCheckInterval);
-      this.cookieCheckInterval = null;
+    // Method 2: Check ytInitialData (most reliable for general pages)
+    channelId = this.getChannelFromYtInitialData();
+    if (channelId) {
+      console.log('YouTubeAccountDetector: Found channel from ytInitialData:', channelId);
+      this.updateCache(channelId);
+      return channelId;
     }
-  }
 
-  /**
-   * Add callback for account changes
-   */
-  static onAccountChange(callback: (accountId: string | null) => void): void {
-    this.accountChangeCallbacks.push(callback);
-  }
-
-  /**
-   * Remove account change callback
-   */
-  static removeAccountChangeCallback(callback: (accountId: string | null) => void): void {
-    const index = this.accountChangeCallbacks.indexOf(callback);
-    if (index > -1) {
-      this.accountChangeCallbacks.splice(index, 1);
+    // Method 3: Check page metadata
+    channelId = this.getChannelFromMetaTags();
+    if (channelId) {
+      console.log('YouTubeAccountDetector: Found channel from meta tags:', channelId);
+      this.updateCache(channelId);
+      return channelId;
     }
-  }
 
-  /**
-   * Handle location changes (URL navigation)
-   */
-  private static handleLocationChange(): void {
-    setTimeout(() => {
-      this.checkForAccountChange();
-    }, 100); // Small delay to let YouTube update
-  }
-
-  /**
-   * Intercept pushState/replaceState for SPA navigation
-   */
-  private static interceptHistoryChanges(): void {
-    const originalPushState = history.pushState;
-    const originalReplaceState = history.replaceState;
-
-    history.pushState = function(...args) {
-      originalPushState.apply(history, args);
-      YouTubeAccountDetector.handleLocationChange();
-    };
-
-    history.replaceState = function(...args) {
-      originalReplaceState.apply(history, args);
-      YouTubeAccountDetector.handleLocationChange();
-    };
-  }
-
-  /**
-   * Check if account has changed and notify callbacks
-   */
-  private static checkForAccountChange(): void {
-    const newAccountId = this.getCurrentAccountId();
-    
-    if (newAccountId !== this.currentAccountId) {
-      this.currentAccountId = newAccountId;
-      
-      // Notify all callbacks
-      this.accountChangeCallbacks.forEach(callback => {
-        try {
-          callback(newAccountId);
-        } catch (error) {
-          console.error('FolderTube: [AccountDetector] Error in account change callback:', error);
-        }
-      });
+    // Method 4: Check DOM elements
+    channelId = this.getChannelFromDOM();
+    if (channelId) {
+      console.log('YouTubeAccountDetector: Found channel from DOM:', channelId);
+      this.updateCache(channelId);
+      return channelId;
     }
-  }
 
-  /**
-   * Create simple hash for privacy
-   */
-  private static simpleHash(str: string): string {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32bit integer
+    // Method 5: Check ytcfg configuration
+    channelId = this.getChannelFromYtcfg();
+    if (channelId) {
+      console.log('YouTubeAccountDetector: Found channel from ytcfg:', channelId);
+      this.updateCache(channelId);
+      return channelId;
     }
-    return Math.abs(hash).toString(16).substring(0, 8);
-  }
 
-  /**
-   * Advanced monitoring for account changes (Nuclear Option)
-   */
-  private static startAdvancedMonitoring(): void {
-    console.log('💥 Starting advanced account change monitoring...');
-    
-    // Monitor DOM changes for account switcher
-    const observer = new MutationObserver(() => {
-      // Check if account switcher is visible
-      const accountSwitcher = document.querySelector('#account-menu, [role="menu"]');
-      if (accountSwitcher) {
-        console.log('💥 Account switcher detected - checking for changes');
-        setTimeout(() => this.checkForAccountChange(), 500);
-      }
-    });
-    
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['class', 'style']
-    });
-    
-    // Monitor URL changes more aggressively
-    let lastUrl = window.location.href;
-    setInterval(() => {
-      const currentUrl = window.location.href;
-      if (currentUrl !== lastUrl) {
-        console.log('💥 URL change detected:', { from: lastUrl.substring(0, 50), to: currentUrl.substring(0, 50) });
-        lastUrl = currentUrl;
-        this.checkForAccountChange();
-      }
-    }, 500);
-    
-    // Monitor clicks on account elements
-    document.addEventListener('click', (event) => {
-      const target = event.target as HTMLElement;
-      if (target && (
-        target.closest('#avatar-btn') ||
-        target.closest('[aria-label*="Account"]') ||
-        target.closest('[data-test-id*="account"]') ||
-        target.id.includes('account') ||
-        target.className.includes('account')
-      )) {
-        console.log('💥 Account-related click detected - monitoring for changes');
-        setTimeout(() => this.checkForAccountChange(), 1000);
-      }
-    });
-  }
-
-  /**
-   * Check if we can reliably detect the current account
-   */
-  static canDetectAccount(): boolean {
-    return this.getCurrentAccountId() !== null;
-  }
-
-  /**
-   * Force immediate account detection (useful for manual refresh)
-   */
-  static forceAccountDetection(): string | null {
-    const accountId = this.getCurrentAccountId();
-    if (accountId !== this.currentAccountId) {
-      this.currentAccountId = accountId;
-      this.accountChangeCallbacks.forEach(callback => {
-        try {
-          callback(accountId);
-        } catch (error) {
-          console.error('FolderTube: [AccountDetector] Error in forced account change callback:', error);
-        }
-      });
-    }
-    return accountId;
-  }
-
-  /**
-   * Wait for account detection with timeout
-   */
-  static async waitForAccountDetection(timeoutMs: number = 10000): Promise<string | null> {
-    const startTime = Date.now();
-    
-    while (Date.now() - startTime < timeoutMs) {
-      const accountId = this.getCurrentAccountId();
-      if (accountId) {
-        return accountId;
-      }
-      
-      // Wait 200ms before trying again (increased from 100ms)
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
-    
-    console.warn('FolderTube: [AccountDetector] Timeout waiting for account detection after', timeoutMs, 'ms');
+    console.log('YouTubeAccountDetector: No channel ID found on current page');
     return null;
   }
 
   /**
-   * Get display name for current account (for debugging/logging)
+   * Get channel ID from URL if on a channel page
    */
-  static getCurrentAccountDisplayName(): string | null {
+  private static getChannelFromURL(): string | null {
     try {
-      // Try to get display name from account menu or avatar
-      const accountName = document.querySelector('#account-name') as HTMLElement;
-      if (accountName && accountName.textContent) {
-        return accountName.textContent.trim();
-      }
-
-      const avatarButton = document.querySelector('#avatar-btn img') as HTMLImageElement;
-      if (avatarButton && avatarButton.alt) {
-        return avatarButton.alt;
-      }
-
-      return null;
-    } catch (error) {
-      console.error('FolderTube: [AccountDetector] Error getting display name:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Extract YouTube Channel ID from URL (most reliable method)
-   */
-  private static getChannelIdFromUrl(): string | null {
-    try {
-      const url = window.location.href;
+      const path = window.location.pathname;
       
-      // Method 1: Direct channel URL (youtube.com/channel/UCxxx)
-      const channelMatch = url.match(/\/channel\/(UC[a-zA-Z0-9_-]+)/);
+      // Check for /channel/UCxxxxxx format
+      const channelMatch = path.match(/\/channel\/(UC[\w-]{22})/);
       if (channelMatch) {
         return channelMatch[1];
       }
-      
-      // Method 2: Custom URL that might have channel ID in page
-      if (url.includes('youtube.com/@') || url.includes('youtube.com/c/') || url.includes('youtube.com/user/')) {
-        // Will need to check page content for these
-        return null;
+
+      // Check for /@handle format (needs conversion)
+      const handleMatch = path.match(/\/@([\w.-]+)/);
+      if (handleMatch) {
+        // We have a handle but need the channel ID
+        // This would need to be resolved via DOM or ytInitialData
+        return null; // Let other methods handle it
       }
-      
-      // Method 3: Check for channel ID in URL params
-      const urlParams = new URLSearchParams(window.location.search);
-      const channelId = urlParams.get('channel_id') || urlParams.get('channelId');
-      if (channelId && channelId.startsWith('UC')) {
-        return channelId;
-      }
-      
-      return null;
     } catch (error) {
-      console.error('🔍 [CHANNEL DETECT] Error getting channel from URL:', error);
+      console.error('YouTubeAccountDetector: Error parsing URL:', error);
+    }
+    return null;
+  }
+
+  /**
+   * Get channel ID from ytInitialData global variable
+   */
+  private static getChannelFromYtInitialData(): string | null {
+    try {
+      const ytData = (window as any).ytInitialData;
+      if (!ytData) return null;
+
+      // Multiple paths where channel ID might be stored
+      const paths = [
+        // On channel pages
+        'metadata.channelMetadataRenderer.externalId',
+        'header.c4TabbedHeaderRenderer.channelId',
+        
+        // On video pages - the video owner
+        'contents.twoColumnWatchNextResults.results.results.contents.0.videoPrimaryInfoRenderer.owner.videoOwnerRenderer.navigationEndpoint.browseEndpoint.browseId',
+        'playerOverlays.playerOverlayRenderer.endScreen.watchNextEndScreenRenderer.results.0.endScreenVideoRenderer.navigationEndpoint.browseEndpoint.browseId',
+        
+        // On home page - the logged in user's channel
+        'topbar.desktopTopbarRenderer.trackingParams',
+        'responseContext.serviceTrackingParams.0.params.0.value'
+      ];
+
+      for (const path of paths) {
+        const value = this.getNestedProperty(ytData, path);
+        if (value && typeof value === 'string' && value.startsWith('UC')) {
+          return value;
+        }
+      }
+
+      // Search recursively for any channelId property
+      const channelId = this.findChannelIdRecursive(ytData);
+      if (channelId) return channelId;
+
+    } catch (error) {
+      console.error('YouTubeAccountDetector: Error parsing ytInitialData:', error);
+    }
+    return null;
+  }
+
+  /**
+   * Get channel ID from meta tags
+   */
+  private static getChannelFromMetaTags(): string | null {
+    try {
+      // Check various meta tags
+      const metaTags = [
+        'meta[itemprop="channelId"]',
+        'meta[property="og:url"]',
+        'link[itemprop="url"]'
+      ];
+
+      for (const selector of metaTags) {
+        const element = document.querySelector(selector);
+        if (element) {
+          const content = element.getAttribute('content') || element.getAttribute('href');
+          if (content) {
+            const match = content.match(/UC[\w-]{22}/);
+            if (match) return match[0];
+          }
+        }
+      }
+    } catch (error) {
+      console.error('YouTubeAccountDetector: Error parsing meta tags:', error);
+    }
+    return null;
+  }
+
+  /**
+   * Get channel ID from DOM elements
+   */
+  private static getChannelFromDOM(): string | null {
+    try {
+      // Check various DOM elements that might contain channel ID
+      const selectors = [
+        // Channel page elements
+        '[data-channel-external-id]',
+        'yt-formatted-string.ytd-channel-name a[href*="/channel/"]',
+        'a.ytp-ce-channel-title[href*="/channel/"]',
+        
+        // Video page elements
+        'ytd-video-owner-renderer a[href*="/channel/"]',
+        'ytd-channel-name a[href*="/channel/"]',
+        
+        // Comments section
+        '#author-text a[href*="/channel/"]'
+      ];
+
+      for (const selector of selectors) {
+        const element = document.querySelector(selector);
+        if (element) {
+          // Check data attribute
+          const dataChannel = element.getAttribute('data-channel-external-id');
+          if (dataChannel && dataChannel.startsWith('UC')) {
+            return dataChannel;
+          }
+
+          // Check href
+          const href = element.getAttribute('href');
+          if (href) {
+            const match = href.match(/\/channel\/(UC[\w-]{22})/);
+            if (match) return match[1];
+          }
+        }
+      }
+
+      // Check for channel links in the page
+      const allChannelLinks = document.querySelectorAll('a[href*="/channel/UC"]');
+      if (allChannelLinks.length > 0) {
+        const href = allChannelLinks[0].getAttribute('href');
+        if (href) {
+          const match = href.match(/\/channel\/(UC[\w-]{22})/);
+          if (match) return match[1];
+        }
+      }
+
+    } catch (error) {
+      console.error('YouTubeAccountDetector: Error parsing DOM:', error);
+    }
+    return null;
+  }
+
+  /**
+   * Get channel ID from ytcfg configuration
+   */
+  private static getChannelFromYtcfg(): string | null {
+    try {
+      const ytcfg = (window as any).ytcfg;
+      if (!ytcfg || typeof ytcfg.get !== 'function') return null;
+
+      // Try to get channel ID from config
+      const configs = [
+        'CHANNEL_ID',
+        'SESSION_INDEX.channelId',
+        'VISITOR_DATA'
+      ];
+
+      for (const config of configs) {
+        const value = ytcfg.get(config);
+        if (value && typeof value === 'string' && value.startsWith('UC')) {
+          return value;
+        }
+      }
+    } catch (error) {
+      console.error('YouTubeAccountDetector: Error parsing ytcfg:', error);
+    }
+    return null;
+  }
+
+  /**
+   * Helper: Get nested property from object
+   */
+  private static getNestedProperty(obj: any, path: string): any {
+    try {
+      const keys = path.split('.');
+      let current = obj;
+      
+      for (const key of keys) {
+        if (current === null || current === undefined) return null;
+        current = current[key];
+      }
+      
+      return current;
+    } catch (error) {
       return null;
     }
   }
-  
+
   /**
-   * Extract YouTube Channel ID from page content (fallback method)
+   * Helper: Find channel ID recursively in object
    */
-  private static getChannelIdFromPage(): string | null {
+  private static findChannelIdRecursive(obj: any, depth: number = 0): string | null {
+    if (depth > 10) return null; // Prevent infinite recursion
+    if (!obj || typeof obj !== 'object') return null;
+
     try {
-      // Method 1: Look for channel ID in meta tags
-      const metaTags = document.querySelectorAll('meta[property="og:url"], meta[name="twitter:url"], link[rel="canonical"]');
-      for (const tag of metaTags) {
-        const content = tag.getAttribute('content') || tag.getAttribute('href');
-        if (content) {
-          const channelMatch = content.match(/\/channel\/(UC[a-zA-Z0-9_-]+)/);
-          if (channelMatch) {
-            return channelMatch[1];
+      for (const key in obj) {
+        if (!obj.hasOwnProperty(key)) continue;
+
+        // Check if this key might contain a channel ID
+        if (key.toLowerCase().includes('channel') || key === 'browseId' || key === 'externalId') {
+          const value = obj[key];
+          if (typeof value === 'string' && value.startsWith('UC') && value.length === 24) {
+            return value;
           }
         }
-      }
-      
-      // Method 2: Look for channel ID in page scripts (YouTube often includes it in JSON)
-      const scripts = document.querySelectorAll('script');
-      for (const script of scripts) {
-        if (script.textContent && script.textContent.includes('"ucid":"UC')) {
-          const ucidMatch = script.textContent.match(/"ucid":"(UC[a-zA-Z0-9_-]+)"/);
-          if (ucidMatch) {
-            return ucidMatch[1];
-          }
+
+        // Recurse into nested objects
+        if (typeof obj[key] === 'object') {
+          const found = this.findChannelIdRecursive(obj[key], depth + 1);
+          if (found) return found;
         }
       }
-      
-      // Method 3: Look for browseId in page data (YouTube's internal identifier)
-      for (const script of scripts) {
-        if (script.textContent && script.textContent.includes('"browseId":"UC')) {
-          const browseMatch = script.textContent.match(/"browseId":"(UC[a-zA-Z0-9_-]+)"/);
-          if (browseMatch) {
-            return browseMatch[1];
-          }
-        }
-      }
-      
-      return null;
     } catch (error) {
-      console.error('🔍 [CHANNEL DETECT] Error getting channel from page:', error);
-      return null;
+      // Ignore errors during recursion
     }
+
+    return null;
+  }
+
+  /**
+   * Update cache with new channel ID
+   */
+  private static updateCache(channelId: string): void {
+    this.cachedChannelId = channelId;
+    this.cacheTimestamp = Date.now();
+  }
+
+  /**
+   * Clear the cache (useful when page changes)
+   */
+  static clearCache(): void {
+    this.cachedChannelId = null;
+    this.cacheTimestamp = 0;
+  }
+
+  /**
+   * Monitor for page changes and clear cache
+   */
+  static startMonitoring(): void {
+    // Clear cache on navigation
+    let lastUrl = window.location.href;
+    
+    const observer = new MutationObserver(() => {
+      if (window.location.href !== lastUrl) {
+        lastUrl = window.location.href;
+        this.clearCache();
+        console.log('YouTubeAccountDetector: Page changed, cache cleared');
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  /**
+   * Get current user's email from the page (if available)
+   */
+  static getCurrentUserEmail(): string | null {
+    try {
+      // Try to get email from ytInitialData
+      const ytData = (window as any).ytInitialData;
+      if (ytData) {
+        // Look for email in various locations
+        const paths = [
+          'topbar.desktopTopbarRenderer.topbarButtons.0.topbarMenuButtonRenderer.avatar.thumbnails.0.url',
+          'header.c4TabbedHeaderRenderer.subscriberCountText.accessibility.accessibilityData.label'
+        ];
+
+        for (const path of paths) {
+          const value = this.getNestedProperty(ytData, path);
+          if (value && value.includes('@')) {
+            const match = value.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+            if (match) return match[1];
+          }
+        }
+      }
+    } catch (error) {
+      console.error('YouTubeAccountDetector: Error getting email:', error);
+    }
+    return null;
+  }
+
+  /**
+   * Check if we're on a YouTube page
+   */
+  static isYouTubePage(): boolean {
+    return window.location.hostname.includes('youtube.com');
+  }
+
+  /**
+   * Get the current page type (home, video, channel, etc.)
+   */
+  static getPageType(): string {
+    const path = window.location.pathname;
+    
+    if (path === '/' || path === '/feed/subscriptions') return 'home';
+    if (path.startsWith('/watch')) return 'video';
+    if (path.startsWith('/channel/') || path.startsWith('/@')) return 'channel';
+    if (path.startsWith('/c/')) return 'custom_channel';
+    if (path.startsWith('/results')) return 'search';
+    
+    return 'other';
   }
 }

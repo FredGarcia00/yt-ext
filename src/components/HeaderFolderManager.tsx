@@ -119,7 +119,7 @@ const HeaderFolderManager: React.FC = () => {
 
   useEffect(() => {
     // Initial load
-    const initialAccountId = YouTubeAccountDetector.getCurrentAccountId();
+    const initialAccountId = YouTubeAccountDetector.getCurrentPageChannelId();
     setCurrentAccountId(initialAccountId);
     loadFoldersForCurrentAccount();
 
@@ -148,14 +148,20 @@ const HeaderFolderManager: React.FC = () => {
       }
     };
 
-    // Start monitoring account changes
+    // Start monitoring account changes (simplified)
     YouTubeAccountDetector.startMonitoring();
-    YouTubeAccountDetector.onAccountChange(handleAccountChange);
+    
+    // Periodic check for account changes instead of callback system
+    const checkInterval = setInterval(() => {
+      const currentChannelId = YouTubeAccountDetector.getCurrentPageChannelId();
+      if (currentChannelId !== currentAccountId) {
+        handleAccountChange(currentChannelId);
+      }
+    }, 2000);
 
     // Cleanup on unmount
     return () => {
-      YouTubeAccountDetector.stopMonitoring();
-      YouTubeAccountDetector.removeAccountChangeCallback(handleAccountChange);
+      clearInterval(checkInterval);
     };
   }, [currentAccountId]);
 

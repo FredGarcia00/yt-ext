@@ -4,6 +4,18 @@
 - Supabase CLI installed: `npm install -g supabase`
 - Access to your Supabase project: `eqwcmgtfprcixhcjxskf`
 
+## Environment Variables/Secrets
+Your Supabase project has these secrets configured:
+- `SUPABASE_URL` - Your Supabase project URL
+- `SUPABASE_ANON_KEY` - Public anon key for client requests
+- `SUPABASE_SERVICE_ROLE_KEY` - Admin key for server operations
+- `SUPABASE_DB_URL` - Direct database connection URL
+- `YOUTUBE_API_KEY` - For YouTube Data API calls
+- `STRIPE_SECRET_KEY` - For payment processing
+- `STRIPE_MONTHLY_PRICE_ID` - Monthly subscription price ID
+- `STRIPE_YEARLY_PRICE_ID` - Yearly subscription price ID
+- `STRIPE_WEBHOOK_SECRET` - For webhook validation
+
 ## Step 1: Deploy Database Schema
 
 ```bash
@@ -26,28 +38,33 @@ This will create the following new tables:
 
 ```bash
 # Deploy all Edge Functions
-supabase functions deploy check-subscription
-supabase functions deploy authenticate-youtube  
-supabase functions deploy manage-folders
-supabase functions deploy track-ai-usage
+supabase functions deploy youtube-proxy
+supabase functions deploy stripe-webhook
+supabase functions deploy stripe-portal
+supabase functions deploy create-checkout
+supabase functions deploy verify-subscription
+supabase functions deploy verify-payment
+supabase functions deploy manage-user-folders
+supabase functions deploy track-usage-limits
+supabase functions deploy authenticate-youtube-channel
 ```
 
 ## Step 3: Test the Backend
 
-### Test Subscription Check
+### Test Subscription Verification
 ```bash
-curl -X POST https://eqwcmgtfprcixhcjxskf.supabase.co/functions/v1/check-subscription \
+curl -X POST https://eqwcmgtfprcixhcjxskf.supabase.co/functions/v1/verify-subscription \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
   -d '{"email":"fredgonzalezgonzalez15@gmail.com"}'
 ```
 
-### Test YouTube Authentication
+### Test YouTube Channel Authentication
 ```bash
-curl -X POST https://eqwcmgtfprcixhcjxskf.supabase.co/functions/v1/authenticate-youtube \
+curl -X POST https://eqwcmgtfprcixhcjxskf.supabase.co/functions/v1/authenticate-youtube-channel \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
-  -d '{"email":"fredgonzalezgonzalez15@gmail.com","channelId":"UC123","channelName":"Test Channel"}'
+  -d '{"access_token":"ya29.a0AfH6SMC..."}'
 ```
 
 ### Test AI Usage Tracking

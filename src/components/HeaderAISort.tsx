@@ -3,10 +3,7 @@ import { YouTubeScraper } from '../utils/youtube-scraper';
 import { YouTubeAPI } from '../utils/youtube-api';
 import { aiCategorizer } from '../utils/aiCategorizer';
 import { showCollectionsView, isCollectionsViewActive } from '../content-collections';
-import { SupabaseAuthService } from '../utils/supabase-auth-service';
-import { SupabaseBackend } from '../utils/supabase-backend';
 import { YouTubeAccountDetector } from '../utils/youtube-account-detector';
-// import { YouTubeEmailVerifier } from '../utils/youtube-email-verifier'; // Unused
 
 interface Folder {
   id: string;
@@ -14,14 +11,14 @@ interface Folder {
   channelIds: string[];
 }
 
+type ButtonState = 'LOCKED' | 'AUTHENTICATING' | 'READY' | 'SORTING';
 
 const HeaderAISort: React.FC = () => {
   const [folders, setFolders] = useState<Folder[]>([]);
-  const [isAISorting, setIsAISorting] = useState(false);
-  const [aiSortsRemaining, setAiSortsRemaining] = useState(0);
-  const [hasVerifiedSubscription, setHasVerifiedSubscription] = useState(false);
-  const [isCheckingSubscription, setIsCheckingSubscription] = useState(true);
-  const [subscriptionUncertain, setSubscriptionUncertain] = useState(false);
+  const [buttonState, setButtonState] = useState<ButtonState>('LOCKED');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [hasSubscription, setHasSubscription] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Function to show paywall modal with subscription options
   const showErrorMessage = (message: string, type: 'error' | 'warning' | 'info' = 'error') => {
@@ -52,7 +49,133 @@ const HeaderAISort: React.FC = () => {
     setTimeout(() => announcement.remove(), 5000);
   };
 
+  // Channel mismatch modal - prevents account bleeding
+  const showChannelMismatchModal = (tokenChannelId: string, currentChannelId: string) => {
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.85);
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `;
+    
+    const modalContent = document.createElement('div');
+    modalContent.style.cssText = `
+      background: white;
+      padding: 30px;
+      border-radius: 16px;
+      text-align: center;
+      max-width: 550px;
+      margin: 20px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    `;
+    
+    modalContent.innerHTML = `
+      <div style="margin-bottom: 20px;">
+        <div style="font-size: 48px; margin-bottom: 15px;">⚠️</div>
+        <h2 style="color: #dc2626; margin-bottom: 10px; font-size: 22px;">Channel Security Warning</h2>
+        <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+          <p style="color: #dc2626; margin: 0; font-weight: 600; font-size: 14px;">Account Bleeding Detected!</p>
+        </div>
+      </div>
+      
+      <div style="text-align: left; margin-bottom: 25px; background: #f8fafc; padding: 16px; border-radius: 8px; border-left: 4px solid #dc2626;">
+        <div style="margin-bottom: 12px;">
+          <strong style="color: #1f2937;">Your Subscription Channel:</strong><br>
+          <span style="font-family: monospace; background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 13px;">${tokenChannelId}</span>
+        </div>
+        <div>
+          <strong style="color: #1f2937;">Current YouTube Channel:</strong><br>
+          <span style="font-family: monospace; background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 13px;">${currentChannelId}</span>
+        </div>
+      </div>
+      
+      <div style="background: #fffbeb; border: 1px solid #fed7aa; border-radius: 8px; padding: 16px; margin-bottom: 25px; text-align: left;">
+        <h4 style="color: #92400e; margin: 0 0 8px 0; font-size: 14px;">🔒 Why This Matters:</h4>
+        <p style="color: #92400e; margin: 0; font-size: 13px; line-height: 1.4;">
+          To prevent unauthorized access to paid features, FolderTube Pro ensures your subscription is used only on the correct YouTube channel. This prevents subscription sharing between different channels.
+        </p>
+      </div>
+      
+      <div style="margin-bottom: 25px;">
+        <h4 style="color: #1f2937; margin-bottom: 15px;">To Fix This Issue:</h4>
+        <div style="text-align: left;">
+          <div style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px;">
+            <div style="background: #3b82f6; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; flex-shrink: 0;">1</div>
+            <div style="flex: 1;">
+              <strong style="color: #1f2937;">Switch to Your Subscription Channel:</strong><br>
+              <span style="color: #6b7280; font-size: 14px;">Click your profile picture on YouTube and switch to the channel ending in <strong>...${tokenChannelId.slice(-8)}</strong></span>
+            </div>
+          </div>
+          <div style="text-align: center; margin: 12px 0; color: #9ca3af;">— OR —</div>
+          <div style="display: flex; align-items: flex-start; gap: 12px;">
+            <div style="background: #3b82f6; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; flex-shrink: 0;">2</div>
+            <div style="flex: 1;">
+              <strong style="color: #1f2937;">Purchase Subscription for Current Channel:</strong><br>
+              <span style="color: #6b7280; font-size: 14px;">Buy a new subscription for channel ending in <strong>...${currentChannelId.slice(-8)}</strong></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    // Buttons
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.cssText = 'display: flex; gap: 12px; justify-content: center;';
+    
+    const refreshButton = document.createElement('button');
+    refreshButton.textContent = '🔄 Try Again';
+    refreshButton.style.cssText = `
+      background: #3b82f6; color: white; border: none; padding: 12px 24px; 
+      border-radius: 8px; font-weight: 600; cursor: pointer; transition: background 0.2s;
+    `;
+    refreshButton.onmouseover = () => refreshButton.style.background = '#2563eb';
+    refreshButton.onmouseout = () => refreshButton.style.background = '#3b82f6';
+    refreshButton.onclick = () => {
+      modal.remove();
+      // Trigger authentication again after user fixes the account mismatch
+      setTimeout(() => showPaywallModal(), 500);
+    };
+    
+    const closeButton = document.createElement('button');
+    closeButton.textContent = '✕ Close';
+    closeButton.style.cssText = `
+      background: #6b7280; color: white; border: none; padding: 12px 24px; 
+      border-radius: 8px; font-weight: 600; cursor: pointer; transition: background 0.2s;
+    `;
+    closeButton.onmouseover = () => closeButton.style.background = '#4b5563';
+    closeButton.onmouseout = () => closeButton.style.background = '#6b7280';
+    closeButton.onclick = () => modal.remove();
+    
+    buttonContainer.appendChild(refreshButton);
+    buttonContainer.appendChild(closeButton);
+    modalContent.appendChild(buttonContainer);
+    modal.appendChild(modalContent);
+    document.body.appendChild(modal);
+    
+    // Close on backdrop click
+    modal.onclick = (e) => {
+      if (e.target === modal) modal.remove();
+    };
+  };
+
   const showPaywallModal = () => {
+    // Simple authentication info without DOM detection
+    const accountWarningHTML = `
+      <div style="background: #e0f2fe; border: 1px solid #0288d1; border-radius: 8px; padding: 12px; margin-bottom: 20px;">
+        <h4 style="color: #01579b; margin: 0 0 8px 0; font-size: 14px;">🔐 Authentication Required</h4>
+        <p style="color: #01579b; margin: 0; font-size: 12px; line-height: 1.4;">
+          Sign in with your Google account to verify your YouTube subscription and unlock AI Sort features.
+        </p>
+      </div>
+    `;
+
     const paywall = document.createElement('div');
     paywall.style.cssText = `
       position: fixed;
@@ -73,13 +196,14 @@ const HeaderAISort: React.FC = () => {
       padding: 30px;
       border-radius: 16px;
       text-align: center;
-      max-width: 450px;
+      max-width: 500px;
       max-height: 80vh;
       overflow-y: auto;
     `;
     
     modal.innerHTML = `
       <h2 style="color: #1f2937; margin-bottom: 20px;">🚀 FolderTube Pro Required</h2>
+      ${accountWarningHTML}
       <p style="color: #666; margin-bottom: 30px; line-height: 1.5;">
         AI Sort organizes your YouTube subscriptions automatically using advanced AI.<br><br>
         <strong>Choose your plan:</strong>
@@ -164,7 +288,10 @@ const HeaderAISort: React.FC = () => {
     if (authenticateBtn) {
       authenticateBtn.onclick = async () => {
         try {
-          // Show loading state
+          // Set authenticating state
+          setButtonState('AUTHENTICATING');
+          
+          // Show loading state in modal
           authenticateBtn.disabled = true;
           authenticateBtn.innerHTML = `
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="animation: spin 1s linear infinite;">
@@ -174,82 +301,107 @@ const HeaderAISort: React.FC = () => {
             Authenticating...
           `;
           
-          console.log('FolderTube: [Paywall] Starting YouTube OAuth authentication...');
+          console.log('FolderTube: [Paywall] ⚡ Starting OAuth authentication...');
+          console.log('FolderTube: [Paywall] 🔍 Sending handleAIAuthentication message to background script');
           
-          // Use the background script for OAuth authentication
+          // Use session-based authentication with enhanced debugging
           const authResult = await new Promise<any>((resolve, reject) => {
+            const startTime = Date.now();
+            
+            // Get current page's channel ID for authentication
+            const currentPageChannelId = YouTubeAccountDetector.getCurrentPageChannelId();
+            
+            if (!currentPageChannelId) {
+              console.error('FolderTube: [Paywall] ❌ Cannot detect YouTube channel on current page');
+              reject(new Error('Cannot detect YouTube channel on current page. Please try from a YouTube channel page or video.'));
+              return;
+            }
+            
+            console.log('FolderTube: [Paywall] 🎯 Authenticating for channel:', currentPageChannelId);
+            
             chrome.runtime.sendMessage(
-              { type: 'authenticateYouTube' },
+              { 
+                type: 'handleAIAuthentication',
+                currentPageChannelId: currentPageChannelId
+              },
               (response) => {
+                const duration = Date.now() - startTime;
+                console.log(`FolderTube: [Paywall] 📨 Background response received in ${duration}ms`);
+                
                 if (chrome.runtime.lastError) {
-                  console.error('FolderTube: [Paywall] Auth error:', chrome.runtime.lastError);
+                  console.error('FolderTube: [Paywall] ❌ Chrome runtime error:', chrome.runtime.lastError);
                   reject(chrome.runtime.lastError);
                   return;
                 }
+                
+                if (!response) {
+                  console.error('FolderTube: [Paywall] ❌ No response from background script');
+                  reject(new Error('No response from background script'));
+                  return;
+                }
+                
+                console.log('FolderTube: [Paywall] 📋 Background script response:', JSON.stringify(response, null, 2));
                 resolve(response);
               }
             );
           });
           
-          console.log('FolderTube: [Paywall] OAuth result:', authResult);
+          console.log('FolderTube: [Paywall] 🎯 Final authentication result:', authResult);
           
-          if (authResult.success && authResult.email && authResult.channelId) {
-            // Check if this authenticated email has a subscription
-            const subscriptionCheck = await new Promise<{ hasSubscription: boolean }>((resolve, reject) => {
-              chrome.runtime.sendMessage({
-                type: 'checkEmailSubscription',
-                email: authResult.email
-              }, (response) => {
-                if (chrome.runtime.lastError) {
-                  reject(chrome.runtime.lastError);
-                  return;
-                }
-                resolve(response);
-              });
-            });
+          if (authResult.success) {
+            // Authentication successful and subscription verified
+            setButtonState('READY');
+            setIsAuthenticated(true);
+            setHasSubscription(true);
             
-            console.log('FolderTube: [Paywall] Subscription check:', subscriptionCheck);
+            paywall.remove();
             
-            if (subscriptionCheck.hasSubscription) {
-              paywall.remove();
+            // Show success message
+            const announcement = document.createElement('div');
+            announcement.textContent = `✅ Authentication successful! You can now use AI Sort.`;
+            announcement.style.cssText = `
+              position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+              background: #10b981; color: white; padding: 12px 24px; border-radius: 24px;
+              font-size: 14px; font-weight: 500; z-index: 10000; text-align: center; max-width: 400px;
+            `;
+            document.body.appendChild(announcement);
+            setTimeout(() => announcement.remove(), 3000);
+            
+            // User can now click the unlocked AI Sort button manually
+          } else {
+            // Authentication failed or no subscription
+            setButtonState('LOCKED');
+            paywall.remove();
+            
+            // Handle channel mismatch specifically
+            if (authResult.channelMismatch) {
+              console.log('FolderTube: [Channel Mismatch] Token channel ID:', authResult.tokenChannelId);
+              console.log('FolderTube: [Channel Mismatch] Current page channel ID:', authResult.currentChannelId);
               
-              // Show success message
-              const announcement = document.createElement('div');
-              announcement.textContent = `✅ Welcome back ${authResult.channelName}! Your subscription is active.`;
-              announcement.style.cssText = `
-                position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
-                background: #10b981; color: white; padding: 12px 24px; border-radius: 24px;
-                font-size: 14px; font-weight: 500; z-index: 10000; text-align: center; max-width: 400px;
-              `;
-              document.body.appendChild(announcement);
-              setTimeout(() => announcement.remove(), 3000);
-              
-              // Continue with AI Sort after successful authentication
-              setTimeout(() => {
-                performAISort();
-              }, 500);
+              // Show enhanced channel mismatch modal
+              showChannelMismatchModal(authResult.tokenChannelId, authResult.currentChannelId);
             } else {
-              // Authenticated but no subscription
-              paywall.remove();
-              
+              // Regular authentication error
+              const errorMessage = authResult.error || 'Authentication failed';
               const announcement = document.createElement('div');
-              announcement.textContent = `✅ Authenticated as ${authResult.channelName}. Please purchase a subscription to use AI Sort.`;
+              announcement.textContent = `❌ ${errorMessage}`;
               announcement.style.cssText = `
                 position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
-                background: #f59e0b; color: white; padding: 12px 24px; border-radius: 24px;
-                font-size: 14px; font-weight: 500; z-index: 10000; text-align: center; max-width: 400px;
+                background: #ef4444; color: white; padding: 12px 24px; border-radius: 24px;
+                font-size: 14px; font-weight: 500; z-index: 10000; text-align: center; max-width: 450px;
               `;
               document.body.appendChild(announcement);
               setTimeout(() => announcement.remove(), 4000);
             }
-          } else {
-            throw new Error(authResult.error || 'Authentication failed');
           }
           
         } catch (error) {
           console.error('FolderTube: [Paywall] Authentication error:', error);
           
-          // Reset button state
+          // Reset to locked state
+          setButtonState('LOCKED');
+          
+          // Reset button state in modal
           authenticateBtn.disabled = false;
           authenticateBtn.innerHTML = `
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -268,226 +420,73 @@ const HeaderAISort: React.FC = () => {
   };
 
   useEffect(() => {
-    // SESSION STORAGE: Use session-based storage that clears on tab close
-    const setupSessionStorage = () => {
-      console.log('💥 Setting up session-based storage (clears on tab close)');
-      
-      // Use sessionStorage for UI state (clears on tab close)
-      sessionStorage.removeItem('foldertube_subscription_state');
-      sessionStorage.removeItem('foldertube_auth_timestamp');
-      console.log('💥 Cleared session storage');
-    };
-    
-    // Verify subscription status - Simplified using backend service
-    const verifySubscriptionStatus = async () => {
-      console.log('FolderTube: Starting subscription verification');
-      
-      // Start with checking state
-      setIsCheckingSubscription(true);
-      setHasVerifiedSubscription(false);
-      setSubscriptionUncertain(false);
-      setAiSortsRemaining(0);
-      setFolders([]);
-      
-      try {
-        // Step 1: Check authentication using simplified method
-        const authInfo = await SupabaseAuthService.getCurrentAuth();
-        
-        if (!authInfo || !authInfo.email || !authInfo.channelId) {
-          console.log('FolderTube: No authentication found - user needs to sign in');
-          setHasVerifiedSubscription(false);
-          setSubscriptionUncertain(true); // Show lock icon
-          setIsCheckingSubscription(false);
-          return;
-        }
-        
-        console.log('FolderTube: ✅ Authentication found:', {
-          email: authInfo.email.substring(0, 10) + '...',
-          channelId: authInfo.channelId.substring(0, 15) + '...'
-        });
-        
-        // Step 2: Check subscription using backend service
-        const subscriptionResult = await SupabaseBackend.checkSubscription(authInfo.email);
-        
-        if (!subscriptionResult.hasSubscription) {
-          console.log('FolderTube: No active subscription found for this email');
-          setHasVerifiedSubscription(false);
-          setSubscriptionUncertain(false); // Show upgrade button
-          setIsCheckingSubscription(false);
-          return;
-        }
-        
-        console.log('FolderTube: ✅ Active subscription confirmed');
-        
-        // Step 3: Check AI usage limits
-        const usageLimits = await SupabaseBackend.checkUsageLimits();
-        
-        console.log('FolderTube: Usage limits:', usageLimits);
-        
-        // Step 4: Set up verified subscriber access
-        setHasVerifiedSubscription(true);
-        setSubscriptionUncertain(false);
-        setAiSortsRemaining(usageLimits.remainingUses || 999);
-        
-        // Folders will be loaded on-demand when Collections button is clicked
-        setFolders([]);
-        
-      } catch (error) {
-        console.error('FolderTube: Subscription verification error:', error);
-        // On error, show lock icon (uncertain state)
-        setHasVerifiedSubscription(false);
-        setSubscriptionUncertain(true);
-        setAiSortsRemaining(0);
-        setFolders([]);
-      } finally {
-        setIsCheckingSubscription(false);
-      }
-    };
-    
-    // Set up session storage and verify subscription
-    setupSessionStorage();
-    console.log('💥 Starting subscription verification with OAuth token management');
-    verifySubscriptionStatus();
-    
-    // Listen for account changes with IMMEDIATE UI state reset
-    const handleAccountChange = async () => {
-      console.log('🔧 ACCOUNT CHANGE: Immediate UI state reset to prevent account bleeding');
-      
-      // IMMEDIATE: Reset UI state first (prevents showing wrong buttons)
-      setHasVerifiedSubscription(false);
-      setSubscriptionUncertain(true); // Show lock icon immediately
-      setAiSortsRemaining(0);
-      setFolders([]);
-      setIsCheckingSubscription(true);
-      
-      try {
-        // Show immediate user feedback
-        const announcement = document.createElement('div');
-        announcement.textContent = '🔄 Account changed - Verifying access...';
-        announcement.style.cssText = `
-          position: fixed;
-          top: 80px;
-          left: 50%;
-          transform: translateX(-50%);
-          background: #f59e0b;
-          color: white;
-          padding: 12px 24px;
-          border-radius: 24px;
-          font-size: 14px;
-          font-weight: 500;
-          z-index: 99999;
-          box-shadow: 0 4px 12px rgba(245, 158, 11, 0.5);
-        `;
-        document.body.appendChild(announcement);
-        
-        // Clear subscription cache for fresh verification
-        await new Promise<void>((resolve) => {
-          chrome.runtime.sendMessage({ type: 'clearSubscriptionCache' }, () => {
-            resolve();
-          });
-        });
-        
-        // Remove the announcement after a moment
-        setTimeout(() => {
-          announcement.remove();
-        }, 2000);
-        
-        // Re-run subscription verification for the new account after a short delay
-        setTimeout(() => {
-          verifySubscriptionStatus();
-        }, 1000);
-        
-      } catch (error) {
-        console.error('🔧 Error during account change handling:', error);
-        // Even if there's an error, we've already reset the UI state to safe defaults
-      }
-    };
-    
-    // Start aggressive account monitoring (Nuclear Option)
+    // Start YouTube page monitoring for account changes
     YouTubeAccountDetector.startMonitoring();
-    YouTubeAccountDetector.onAccountChange(handleAccountChange);
-    window.addEventListener('foldertube:google-account-changed', handleAccountChange);
     
-    // ENHANCED: More responsive state validation
-    const stateValidationInterval = setInterval(() => {
-      // Check for account changes more frequently and reset UI immediately if needed
-      if (hasVerifiedSubscription && !isCheckingSubscription) {
-        // Quick account detection check
-        const currentAccountId = YouTubeAccountDetector.getCurrentAccountId();
-        const currentChannelId = YouTubeAccountDetector.getCurrentChannelId();
-        
-        // If we can't detect account properly, immediately reset UI
-        if (!currentAccountId && !currentChannelId) {
-          console.log('🔧 PERIODIC CHECK: Account detection failed - immediate UI reset');
-          setHasVerifiedSubscription(false);
-          setSubscriptionUncertain(true);
-          setAiSortsRemaining(0);
-          setFolders([]);
-        }
-      }
-      
-      // Also check if user is on non-paid account but UI shows they're verified
-      if (hasVerifiedSubscription && !isCheckingSubscription) {
-        // Do a quick auth check to make sure we're still authenticated
-        SupabaseAuthService.getCurrentAuth().then(auth => {
-          if (!auth || !auth.email) {
-            console.log('🔧 PERIODIC CHECK: Auth lost - resetting UI');
-            setHasVerifiedSubscription(false);
-            setSubscriptionUncertain(true);
-            setAiSortsRemaining(0);
-            setFolders([]);
-          }
-        }).catch(() => {
-          // If auth check fails, reset UI to safe state
-          setHasVerifiedSubscription(false);
-          setSubscriptionUncertain(true);
-          setAiSortsRemaining(0);
-          setFolders([]);
-        });
-      }
-    }, 2000); // Check every 2 seconds (more responsive)
+    checkAuthStatus();
     
-    return () => {
-      YouTubeAccountDetector.removeAccountChangeCallback(handleAccountChange);
-      window.removeEventListener('foldertube:google-account-changed', handleAccountChange);
-      clearInterval(stateValidationInterval);
-    };
+    // Check periodically
+    const interval = setInterval(checkAuthStatus, 30000); // Every 30 seconds
+    
+    return () => clearInterval(interval);
   }, []);
-
-  // Listen for folder updates after AI Sort creates new folders
-  useEffect(() => {
-    if (!hasVerifiedSubscription) {
-      return;
-    }
-
-    const handleFolderUpdate = async () => {
-      console.log('FolderTube: Folder update event - reloading from Supabase');
-      try {
-        const folderData = await SupabaseAuthService.loadFolders();
-        if (folderData.success && folderData.folders) {
-          const convertedFolders = folderData.folders.map((folder: any) => ({
-            id: folder.id || folder.folder_id,
-            name: folder.folder_name || folder.name,
-            channelIds: folder.channel_ids || folder.channelIds || []
-          }));
-          setFolders(convertedFolders);
-          console.log('FolderTube: Updated folders after AI Sort:', convertedFolders.length);
-        }
-      } catch (error) {
-        console.error('FolderTube: Error updating folders after AI Sort:', error);
+  
+  const checkAuthStatus = async () => {
+    try {
+      // Get current page's channel ID
+      const currentPageChannelId = YouTubeAccountDetector.getCurrentPageChannelId();
+      
+      if (!currentPageChannelId) {
+        console.log('FolderTube: [HeaderAISort] No channel detected on current page');
+        setIsAuthenticated(false);
+        setHasSubscription(false);
+        setButtonState('LOCKED');
+        setIsLoading(false);
+        return;
       }
-    };
-    
-    window.addEventListener('foldertube:folders-updated', handleFolderUpdate);
 
-    return () => {
-      window.removeEventListener('foldertube:folders-updated', handleFolderUpdate);
-    };
-  }, [hasVerifiedSubscription]);
+      console.log('FolderTube: [HeaderAISort] Checking auth for channel:', currentPageChannelId);
+      
+      const response = await new Promise<any>((resolve) => {
+        chrome.runtime.sendMessage(
+          { 
+            type: 'checkAuthenticationStatus',
+            currentPageChannelId: currentPageChannelId
+          },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              console.error('Auth check error:', chrome.runtime.lastError);
+              resolve({ success: false });
+            } else {
+              resolve(response || { success: false });
+            }
+          }
+        );
+      });
+      
+      if (response.success && response.authenticated && response.hasSubscription) {
+        setIsAuthenticated(true);
+        setHasSubscription(true);
+        setButtonState('READY');
+      } else {
+        setIsAuthenticated(false);
+        setHasSubscription(false);
+        setButtonState('LOCKED');
+      }
+    } catch (error) {
+      console.error('Error checking auth status:', error);
+      setIsAuthenticated(false);
+      setHasSubscription(false);
+      setButtonState('LOCKED');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
 
   // Extract the core AI Sort logic into a separate function
   const performAISort = async () => {
-    setIsAISorting(true);
+    setButtonState('SORTING');
     
     // Create announcement element
     const announcement = document.createElement('div');
@@ -508,46 +507,78 @@ const HeaderAISort: React.FC = () => {
     document.body.appendChild(announcement);
     
     try {
-      // STEP 1: SIMPLIFIED AUTHENTICATION CHECK
-      announcement.textContent = 'Verifying authentication...';
+      // STEP 1: Get authenticated user from session (already validated by handleAISort)
+      announcement.textContent = 'Getting session data...';
       
-      let currentAuth = await SupabaseAuthService.getCurrentAuth();
+      // Get current page's channel ID
+      const currentPageChannelId = YouTubeAccountDetector.getCurrentPageChannelId();
       
-      if (!currentAuth) {
-        console.log('FolderTube: [AI Sort] No authentication found - requesting sign in...');
-        announcement.textContent = 'Please sign in with Google';
+      if (!currentPageChannelId) {
+        console.error('FolderTube: [AI Sort] ❌ Cannot detect YouTube channel on current page');
+        announcement.textContent = '❌ Cannot detect YouTube channel on page';
         announcement.style.background = '#ef4444';
         setTimeout(() => {
           announcement.remove();
-          showPaywallModal();
+          showErrorMessage('Cannot detect YouTube channel. Please try from a YouTube channel page or video.', 'error');
         }, 2000);
-        setIsAISorting(false);
+        setButtonState('LOCKED');
         return;
       }
       
-      console.log('FolderTube: [AI Sort] ✅ Authentication found:', {
-        email: currentAuth.email?.substring(0, 10) + '...',
-        channelId: currentAuth.channelId?.substring(0, 15) + '...'
+      console.log('FolderTube: [AI Sort] 🎯 Validating access for channel:', currentPageChannelId);
+      
+      const sessionResponse = await new Promise<any>((resolve) => {
+        chrome.runtime.sendMessage(
+          { 
+            type: 'checkAuthenticationStatus',
+            currentPageChannelId: currentPageChannelId
+          },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              console.error('AI Sort: Session check error:', chrome.runtime.lastError);
+              resolve({ success: false });
+            } else {
+              resolve(response || { success: false });
+            }
+          }
+        );
       });
       
-      // STEP 2: VERIFY SUBSCRIPTION USING BACKEND
-      announcement.textContent = 'Verifying subscription...';
-      
-      const subscriptionCheck = await SupabaseBackend.checkSubscription(currentAuth.email);
-      
-      if (!subscriptionCheck.hasSubscription) {
-        console.log('FolderTube: [AI Sort] ❌ No active subscription');
-        announcement.textContent = '❌ Active subscription required';
+      if (!sessionResponse.success || !sessionResponse.authenticated || !sessionResponse.hasSubscription) {
+        console.error('FolderTube: [AI Sort] ❌ SECURITY VIOLATION: Invalid session or no subscription');
+        console.error('FolderTube: [AI Sort] Session details:', {
+          success: sessionResponse.success,
+          authenticated: sessionResponse.authenticated,
+          hasSubscription: sessionResponse.hasSubscription
+        });
+        
+        announcement.textContent = '❌ Authentication or subscription required';
         announcement.style.background = '#ef4444';
         setTimeout(() => {
           announcement.remove();
-          showPaywallModal();
+          showErrorMessage('Valid subscription required to use AI Sort', 'error');
         }, 2000);
-        setIsAISorting(false);
+        setButtonState('LOCKED');
         return;
       }
       
-      console.log('FolderTube: [AI Sort] ✅ Subscription verified');
+      const currentAuth = {
+        email: sessionResponse.email,
+        channelId: sessionResponse.channelId,
+        channelName: sessionResponse.channelName || 'Unknown'
+      };
+      
+      console.log('FolderTube: [AI Sort] Using session data:', {
+        email: currentAuth.email.substring(0, 10) + '...',
+        channelId: currentAuth.channelId.substring(0, 15) + '...'
+      });
+      
+      // Authentication and account validation already handled by handleAISort
+      // Session data is our source of truth
+      
+      console.log('FolderTube: [AI Sort] ✅ Authentication and subscription verified via session');
+      
+      // Subscription check already handled by handleAIAuthentication
       
       // STEP 3: NOW start AI categorization (after all checks pass)
       announcement.textContent = 'AI is categorizing your channels...';
@@ -718,21 +749,29 @@ const HeaderAISort: React.FC = () => {
         authKeys: Object.keys(currentAuth)
       }));
       
-      // Increment AI usage using backend service
-      const usageResult = await SupabaseBackend.recordAIUsage();
-      console.log('FolderTube: [AI Sort] AI usage recorded:', usageResult);
       
-      // Update remaining uses if available
-      if (usageResult.remainingUsage !== undefined) {
-        setAiSortsRemaining(usageResult.remainingUsage);
-      }
+      // Usage tracking is handled by the session service
       
-      // Save folders to Supabase using the validated authenticated session
+      // Save folders using background script
       console.log('FolderTube: [AI Sort] Saving folders with auth:', {
         email: currentAuth.email?.substring(0, 15) + '...',
         channelId: currentAuth.channelId?.substring(0, 20) + '...'
       });
-      const saveResult = await SupabaseAuthService.saveFolders(createdFolders, currentAuth);
+      
+      const saveResult = await new Promise<any>((resolve) => {
+        chrome.runtime.sendMessage({
+          type: 'saveFolders',
+          folders: createdFolders,
+          auth: currentAuth
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error('Save folders error:', chrome.runtime.lastError);
+            resolve({ success: false, error: chrome.runtime.lastError.message });
+          } else {
+            resolve(response || { success: false });
+          }
+        });
+      });
       
       if (saveResult.success) {
         console.log('FolderTube: [AI Sort] Folders saved successfully to Supabase');
@@ -828,46 +867,26 @@ const HeaderAISort: React.FC = () => {
       document.body.appendChild(announcement);
       setTimeout(() => announcement.remove(), 3000);
     } finally {
-      setIsAISorting(false);
+      setButtonState('READY');
     }
   };
 
   const handleAISort = async () => {
-    console.log('💥🔥 AI SORT: STRICT VERIFICATION - NO BYPASSES ALLOWED');
+    // Block clicks based on current state
+    if (buttonState === 'SORTING' || buttonState === 'AUTHENTICATING') return;
     
-    // STEP 1: Check component state first (fail-fast)
-    if (!hasVerifiedSubscription) {
-      console.log('💥 AI Sort blocked - no verified subscription in component state');
+    // If locked, show paywall modal for authentication
+    if (buttonState === 'LOCKED') {
       showPaywallModal();
       return;
     }
     
-    // STEP 1.5: QUICK SUBSCRIPTION CHECK (streamlined for paid users)
-    console.log('🔧 Quick subscription verification for AI sort...');
-    
-    try {
-      const quickAuth = await SupabaseAuthService.getCurrentAuth();
-      if (!quickAuth) {
-        console.log('🔧 No authentication - showing sign-in modal');
-        showPaywallModal();
-        return;
-      }
-      
-      console.log('🔧 Auth found for AI sort:', {
-        email: quickAuth.email?.substring(0, 10) + '...',
-        channelId: quickAuth.channelId?.substring(0, 15) + '...'
-      });
-      
-    } catch (error) {
-      console.error('🔧 Auth check error:', error);
-      showPaywallModal();
+    // If ready, proceed with AI Sort
+    if (buttonState === 'READY') {
+      console.log('AI Sort: Starting AI categorization');
+      await performAISort();
       return;
     }
-    
-    console.log('🔧 ✅ Auth verified - proceeding with AI sort');
-    
-    // Proceed with AI sort using verified authentication
-    await performAISort();
   };
 
   return (
@@ -877,8 +896,8 @@ const HeaderAISort: React.FC = () => {
       gap: '12px',
       height: '100%'
     }}>
-      {/* Only show content for verified subscribers or loading state */}
-      {isCheckingSubscription ? (
+      {/* Single AI Sort button handles everything */}
+      {isLoading ? (
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -899,43 +918,87 @@ const HeaderAISort: React.FC = () => {
             borderRadius: '50%',
             animation: 'spin 1s linear infinite'
           }}></div>
-          Verifying...
+          Loading...
         </div>
-      ) : hasVerifiedSubscription ? (
-        /* Verified subscribers see full AI Sort + Collections */
+      ) : (
+        /* Show AI Sort button for everyone - it handles auth internally */
         <>
-          {/* AI Sort Button - Only for verified subscribers */}
+          {/* AI Sort Button with State-Based Rendering */}
           <button
             onClick={handleAISort}
-            disabled={isAISorting}
+            disabled={buttonState === 'SORTING' || buttonState === 'AUTHENTICATING'}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
               padding: '8px 16px',
-              background: 'linear-gradient(135deg, #6d28d9 0%, #a855f7 100%)',
+              background: buttonState === 'LOCKED' 
+                ? 'linear-gradient(135deg, #6b7280 0%, #9ca3af 100%)'
+                : 'linear-gradient(135deg, #6d28d9 0%, #a855f7 100%)',
               color: 'white',
               border: 'none',
               borderRadius: '20px',
               fontSize: '14px',
               fontWeight: '600',
-              cursor: isAISorting ? 'not-allowed' : 'pointer',
+              cursor: buttonState === 'SORTING' || buttonState === 'AUTHENTICATING' 
+                ? 'not-allowed' 
+                : buttonState === 'LOCKED' 
+                  ? 'pointer'
+                  : 'pointer',
               transition: 'all 0.3s ease',
-              boxShadow: '0 2px 8px rgba(109, 40, 217, 0.3)',
-              opacity: isAISorting ? 0.7 : 1
+              boxShadow: buttonState === 'LOCKED'
+                ? '0 2px 8px rgba(107, 114, 128, 0.3)'
+                : '0 2px 8px rgba(109, 40, 217, 0.3)',
+              opacity: buttonState === 'SORTING' || buttonState === 'AUTHENTICATING' ? 0.7 : 1
             }}
             onMouseEnter={(e) => {
-              if (!isAISorting) {
+              if (buttonState !== 'SORTING' && buttonState !== 'AUTHENTICATING') {
                 e.currentTarget.style.transform = 'translateY(-1px)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(109, 40, 217, 0.4)';
+                e.currentTarget.style.boxShadow = buttonState === 'LOCKED'
+                  ? '0 4px 12px rgba(107, 114, 128, 0.4)'
+                  : '0 4px 12px rgba(109, 40, 217, 0.4)';
               }
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(109, 40, 217, 0.3)';
+              e.currentTarget.style.boxShadow = buttonState === 'LOCKED'
+                ? '0 2px 8px rgba(107, 114, 128, 0.3)'
+                : '0 2px 8px rgba(109, 40, 217, 0.3)';
             }}
           >
-            {isAISorting ? (
+            {buttonState === 'LOCKED' && (
+              <>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12,17C10.89,17 10,16.1 10,15C10,13.89 10.89,13 12,13A2,2 0 0,1 14,15A2,2 0 0,1 12,17M18,20V10H6V20H18M18,8A2,2 0 0,1 20,10V20A2,2 0 0,1 18,22H6C4.89,22 4,21.1 4,20V10A2,2 0 0,1 6,8H7V6A5,5 0 0,1 12,1A5,5 0 0,1 17,6V8H18M12,3A3,3 0 0,0 9,6V8H15V6A3,3 0 0,0 12,3Z"/>
+                </svg>
+Sign In to Use AI Sort
+              </>
+            )}
+            {buttonState === 'AUTHENTICATING' && (
+              <>
+                <div style={{
+                  width: '14px',
+                  height: '14px',
+                  border: '2px solid rgba(255,255,255,0.3)',
+                  borderTop: '2px solid white',
+                  borderRadius: '50%',
+                  animation: 'spin 1s linear infinite'
+                }}></div>
+                Authenticating...
+              </>
+            )}
+            {buttonState === 'READY' && (
+              <>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 1 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z" 
+                    fill="currentColor"/>
+                  <circle cx="9.5" cy="9.5" r="2.5" fill="#10b981"/>
+                  <circle cx="19" cy="19" r="2" fill="currentColor"/>
+                </svg>
+                AI Sort
+              </>
+            )}
+            {buttonState === 'SORTING' && (
               <>
                 <div style={{
                   width: '14px',
@@ -947,151 +1010,86 @@ const HeaderAISort: React.FC = () => {
                 }}></div>
                 AI Sorting...
               </>
-            ) : (
-              <>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 1 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z" 
-                    fill="currentColor"/>
-                  <circle cx="9.5" cy="9.5" r="2.5" fill="#10b981"/>
-                  <circle cx="19" cy="19" r="2" fill="currentColor"/>
-                </svg>
-                AI Sort {aiSortsRemaining > 0 && aiSortsRemaining < 999 && `(${aiSortsRemaining} remaining)`}
-              </>
             )}
           </button>
-
-          {/* Collections Button - Always visible for verified subscribers */}
-          <button
-            id="collections-button"
-            onClick={async () => {
-              // Lazy load folders if not already loaded
-              if (folders.length === 0) {
-                console.log('🔍 Collections clicked - loading folders on demand...');
-                try {
-                  const folderData = await SupabaseAuthService.loadFolders();
-                  if (folderData.success && folderData.folders && folderData.folders.length > 0) {
-                    const convertedFolders = folderData.folders.map((folder: any) => ({
-                      id: folder.id || folder.folder_id,
-                      name: folder.folder_name || folder.name,
-                      channelIds: folder.channel_ids || folder.channelIds || []
-                    }));
-                    setFolders(convertedFolders);
-                    console.log('🔍 ✅ Loaded', convertedFolders.length, 'folders on demand');
-                  } else {
-                    console.log('🔍 No folders found - user may need to run AI Sort first');
-                    showErrorMessage('No collections found. Run AI Sort to create your first collection!', 'info');
+          
+          {/* Collections Button - Show when authenticated and has subscription */}
+          {isAuthenticated && hasSubscription && (
+            <button
+              id="collections-button"
+              onClick={async () => {
+                // Lazy load folders if not already loaded
+                if (folders.length === 0) {
+                  console.log('🔍 Collections clicked - loading folders on demand...');
+                  try {
+                    const folderData = await new Promise<any>((resolve) => {
+                      chrome.runtime.sendMessage({ type: 'loadFolders' }, (response) => {
+                        if (chrome.runtime.lastError) {
+                          console.error('Load folders error:', chrome.runtime.lastError);
+                          resolve({ success: false });
+                        } else {
+                          resolve(response || { success: false });
+                        }
+                      });
+                    });
+                    if (folderData.success && folderData.folders && folderData.folders.length > 0) {
+                      const convertedFolders = folderData.folders.map((folder: any) => ({
+                        id: folder.id || folder.folder_id,
+                        name: folder.folder_name || folder.name,
+                        channelIds: folder.channel_ids || folder.channelIds || []
+                      }));
+                      setFolders(convertedFolders);
+                      console.log('🔍 ✅ Loaded', convertedFolders.length, 'folders on demand');
+                    } else {
+                      console.log('🔍 No folders found - user may need to run AI Sort first');
+                      showErrorMessage('No collections found. Run AI Sort to create your first collection!', 'info');
+                      return;
+                    }
+                  } catch (error) {
+                    console.error('🔍 ❌ Error loading folders on demand:', error);
+                    showErrorMessage('Failed to load collections. Please try refreshing.', 'error');
                     return;
                   }
-                } catch (error) {
-                  console.error('🔍 ❌ Error loading folders on demand:', error);
-                  showErrorMessage('Failed to load collections. Please try refreshing.', 'error');
-                  return;
                 }
-              }
-              
-              if (!isCollectionsViewActive()) {
-                showCollectionsView();
-              }
-            }}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 16px',
-              background: 'white',
-              color: '#6d28d9',
-              border: '2px solid #6d28d9',
-              borderRadius: '20px',
-              fontSize: '14px',
-              fontWeight: '600',
-              cursor: 'pointer',
-              transition: 'all 0.3s ease',
-              position: 'relative',
-              overflow: 'hidden'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = '#6d28d9';
-              e.currentTarget.style.color = 'white';
-              e.currentTarget.style.transform = 'translateY(-1px)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'white';
-              e.currentTarget.style.color = '#6d28d9';
-              e.currentTarget.style.transform = 'translateY(0)';
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <path d="M10 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2h-8l-2-2z" fill="currentColor"/>
-            </svg>
-            Collections {folders.length > 0 && `(${folders.length})`}
-          </button>
+                
+                if (!isCollectionsViewActive()) {
+                  showCollectionsView();
+                }
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 16px',
+                background: 'white',
+                color: '#6d28d9',
+                border: '2px solid #6d28d9',
+                borderRadius: '20px',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#6d28d9';
+                e.currentTarget.style.color = 'white';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'white';
+                e.currentTarget.style.color = '#6d28d9';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M10 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2h-8l-2-2z" fill="currentColor"/>
+              </svg>
+              Collections {folders.length > 0 && `(${folders.length})`}
+            </button>
+          )}
         </>
-      ) : subscriptionUncertain ? (
-        /* Users with uncertain subscription status see lock icon */
-        <button
-          onClick={showPaywallModal}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '8px 16px',
-            background: 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
-            color: 'white',
-            border: 'none',
-            borderRadius: '20px',
-            fontSize: '14px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            transition: 'all 0.3s ease',
-            boxShadow: '0 2px 8px rgba(107, 114, 128, 0.3)'
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'translateY(-1px)';
-            e.currentTarget.style.boxShadow = '0 4px 12px rgba(107, 114, 128, 0.4)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.boxShadow = '0 2px 8px rgba(107, 114, 128, 0.3)';
-          }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2C13.1 2 14 2.9 14 4V8H16C17.1 8 18 8.9 18 10V20C18 21.1 17.1 22 16 22H8C6.9 22 6 21.1 6 20V10C6 8.9 6.9 8 8 8H10V4C10 2.9 10.9 2 12 2M12 4C11.4 4 11 4.4 11 5V8H13V5C13 4.4 12.6 4 12 4M8 10V20H16V10H8Z"/>
-          </svg>
-          🔒 AI Sort
-        </button>
-      ) : (
-        /* Confirmed non-subscribers see upgrade button */
-        <button
-          onClick={showPaywallModal}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '8px 16px',
-            background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-            color: 'white',
-            border: 'none',
-            borderRadius: '20px',
-            fontSize: '14px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            transition: 'all 0.3s ease',
-            boxShadow: '0 2px 8px rgba(245, 158, 11, 0.3)'
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'translateY(-1px)';
-            e.currentTarget.style.boxShadow = '0 4px 12px rgba(245, 158, 11, 0.4)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.boxShadow = '0 2px 8px rgba(245, 158, 11, 0.3)';
-          }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2ZM21 9V7L15 1H5C3.9 1 3 1.9 3 3V7C3 8.1 3.9 9 5 9H21ZM19 19H5V21H19V19ZM3 11V17H21V11H3Z"/>
-          </svg>
-          Get FolderTube Pro
-        </button>
       )}
 
       {/* Add CSS animations */}

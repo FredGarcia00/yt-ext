@@ -2,15 +2,37 @@ import ReactDOM from 'react-dom/client';
 import './content.css';
 import './content-collections.css';
 import SidebarFolderSection from './components/SidebarFolderSection';
+import { SupabaseAuthService } from './utils/supabase-auth-service';
+import { YouTubeAccountDetector } from './utils/youtube-account-detector';
 
 // Export collections functionality for global access
 import * as collectionsModule from './content-collections';
 (window as any).FolderTubeCollections = collectionsModule;
 
+// Expose YouTubeAccountDetector globally for background script access (backup)
+(window as any).YouTubeAccountDetector = YouTubeAccountDetector;
+
+// Add message listener for background script communication (backup)
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  if (request.type === 'getCurrentYouTubeChannel') {
+    try {
+      const channelId = YouTubeAccountDetector.getCurrentPageChannelId();
+      sendResponse({ channelId });
+    } catch (error) {
+      console.error('Content script (sidebar): Error getting YouTube channel:', error);
+      sendResponse({ channelId: null, error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+    return true; // Keep message channel open for async response
+  }
+});
+
 
 const CONTAINER_ID = 'foldertube-sidebar-container';
 
 function injectSidebarUI() {
+  
+  // Start YouTube account monitoring to prevent account bleeding  
+  SupabaseAuthService.startAccountChangeMonitoring();
   
   // Find the guide (sidebar) section
   const guide = document.querySelector('#guide-inner-content');

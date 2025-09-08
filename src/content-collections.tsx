@@ -1,10 +1,14 @@
 import ReactDOM from 'react-dom/client';
 import CollectionsView from './components/CollectionsView';
+import { SupabaseAuthService } from './utils/supabase-auth-service';
 
 let root: ReactDOM.Root | null = null;
 let collectionsContainer: HTMLDivElement | null = null;
 
 export function showCollectionsView() {
+  
+  // Start YouTube account monitoring to prevent account bleeding
+  SupabaseAuthService.startAccountChangeMonitoring();
   
   // Hide YouTube's main content
   const ytMainContent = document.querySelector('ytd-browse, ytd-watch-flexy, ytd-search');
