@@ -364,7 +364,7 @@ export class YouTubeAPI {
     channelId: string, 
     channelName: string,
     forceRefresh: boolean = false,
-_isPremium: boolean = true // Default to premium for now to test functionality
+_isPremium: boolean = false
   ): Promise<ChannelVideoData> {
     // PRODUCTION: Strict input validation
     if (!channelId || !channelId.trim()) {

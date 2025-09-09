@@ -50,6 +50,97 @@ const HeaderAISort: React.FC = () => {
   };
 
   // Channel mismatch modal - prevents account bleeding
+  const showAuthorizationErrorModal = (errorMessage: string) => {
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.8); z-index: 99999;
+      display: flex; align-items: center; justify-content: center;
+    `;
+    
+    const modalContent = document.createElement('div');
+    modalContent.style.cssText = `
+      background: white; padding: 30px; border-radius: 16px;
+      max-width: 500px; text-align: center;
+    `;
+    
+    // Determine error type and content
+    const isYouTubeError = errorMessage.includes('YouTube channel access');
+    const isPermissionsError = errorMessage.includes('Google account permissions');
+    
+    modalContent.innerHTML = `
+      <h2 style="color: #ef4444; margin: 0 0 20px 0; font-size: 24px;">
+        ⚠️ ${isYouTubeError ? 'YouTube Access Required' : 'Authentication Required'}
+      </h2>
+      
+      <div style="background: #fef2f2; border: 1px solid #fca5a5; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+        <p style="color: #991b1b; margin: 0 0 10px 0; font-weight: 600;">
+          ${isYouTubeError ? 'Cannot access your YouTube channel' : 
+            isPermissionsError ? 'Missing Google account permissions' :
+            'Authentication failed'}
+        </p>
+        <p style="color: #7f1d1d; margin: 0; font-size: 14px; line-height: 1.5;">
+          ${errorMessage}
+        </p>
+      </div>
+      
+      <div style="text-align: left; margin: 20px 0;">
+        <h3 style="color: #374151; margin: 0 0 10px 0; font-size: 16px;">How to fix:</h3>
+        <ol style="color: #4b5563; margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.8;">
+          <li>Sign out of YouTube and sign back in</li>
+          <li>Make sure you're using the same Google account in Chrome and YouTube</li>
+          <li>Clear browser cache and cookies for YouTube</li>
+          <li>Try again with the "Authenticate" button</li>
+        </ol>
+      </div>
+      
+      <div style="background: #e0f2fe; border: 1px solid #0288d1; border-radius: 8px; padding: 12px; margin-bottom: 20px;">
+        <p style="color: #01579b; margin: 0; font-size: 13px;">
+          <strong>Note:</strong> If you're using a brand account or managed account, 
+          try switching to your personal YouTube channel first.
+        </p>
+      </div>
+    `;
+    
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.cssText = 'display: flex; gap: 10px; justify-content: center; margin-top: 20px;';
+    
+    const tryAgainButton = document.createElement('button');
+    tryAgainButton.textContent = '🔄 Try Again';
+    tryAgainButton.style.cssText = `
+      background: #3b82f6; color: white; border: none; padding: 12px 24px;
+      border-radius: 8px; font-weight: 600; cursor: pointer; transition: background 0.2s;
+    `;
+    tryAgainButton.onmouseover = () => tryAgainButton.style.background = '#2563eb';
+    tryAgainButton.onmouseout = () => tryAgainButton.style.background = '#3b82f6';
+    tryAgainButton.onclick = () => {
+      modal.remove();
+      // Show paywall modal again for retry
+      setTimeout(() => showPaywallModal(), 500);
+    };
+    
+    const closeButton = document.createElement('button');
+    closeButton.textContent = '✕ Close';
+    closeButton.style.cssText = `
+      background: #6b7280; color: white; border: none; padding: 12px 24px;
+      border-radius: 8px; font-weight: 600; cursor: pointer; transition: background 0.2s;
+    `;
+    closeButton.onmouseover = () => closeButton.style.background = '#4b5563';
+    closeButton.onmouseout = () => closeButton.style.background = '#6b7280';
+    closeButton.onclick = () => modal.remove();
+    
+    buttonContainer.appendChild(tryAgainButton);
+    buttonContainer.appendChild(closeButton);
+    modalContent.appendChild(buttonContainer);
+    modal.appendChild(modalContent);
+    document.body.appendChild(modal);
+    
+    // Close on backdrop click
+    modal.onclick = (e) => {
+      if (e.target === modal) modal.remove();
+    };
+  };
+
   const showChannelMismatchModal = (tokenChannelId: string, currentChannelId: string) => {
     const modal = document.createElement('div');
     modal.style.cssText = `
@@ -273,14 +364,14 @@ const HeaderAISort: React.FC = () => {
     
     if (monthlyBtn) {
       monthlyBtn.onclick = () => {
-        window.open('https://buy.stripe.com/test_00weV6f5d6rh3Ii9nVdZ601', '_blank');
+        window.open('https://buy.stripe.com/00weV6f5d6rh3Ii9nVdZ601', '_blank');
         paywall.remove();
       };
     }
     
     if (yearlyBtn) {
       yearlyBtn.onclick = () => {
-        window.open('https://buy.stripe.com/test_6oU9AM6yH7vl2Ee6bJdZ600', '_blank');
+        window.open('https://buy.stripe.com/6oU9AM6yH7vl2Ee6bJdZ600', '_blank');
         paywall.remove();
       };
     }
@@ -380,6 +471,14 @@ const HeaderAISort: React.FC = () => {
               
               // Show enhanced channel mismatch modal
               showChannelMismatchModal(authResult.tokenChannelId, authResult.currentChannelId);
+            } else if (authResult.error && (
+              authResult.error.includes('YouTube channel access not available') ||
+              authResult.error.includes('Google account permissions missing') ||
+              authResult.error.includes('Authentication failed. Please try signing out')
+            )) {
+              // Authorization/permissions error - show helpful modal
+              paywall.remove();
+              showAuthorizationErrorModal(authResult.error);
             } else {
               // Regular authentication error
               const errorMessage = authResult.error || 'Authentication failed';
@@ -519,7 +618,8 @@ const HeaderAISort: React.FC = () => {
         announcement.style.background = '#ef4444';
         setTimeout(() => {
           announcement.remove();
-          showErrorMessage('Cannot detect YouTube channel. Please try from a YouTube channel page or video.', 'error');
+          // Show paywall modal with context about needing to be on YouTube
+          showPaywallModal();
         }, 2000);
         setButtonState('LOCKED');
         return;
@@ -556,7 +656,8 @@ const HeaderAISort: React.FC = () => {
         announcement.style.background = '#ef4444';
         setTimeout(() => {
           announcement.remove();
-          showErrorMessage('Valid subscription required to use AI Sort', 'error');
+          // Show paywall modal instead of just error message
+          showPaywallModal();
         }, 2000);
         setButtonState('LOCKED');
         return;
@@ -850,6 +951,12 @@ const HeaderAISort: React.FC = () => {
     } catch (error) {
       console.error('FolderTube: [AI Sort] Error during AI categorization:', error);
       const announcement = document.createElement('div');
+      
+      // Check if error is authentication/subscription related
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isAuthError = errorMessage.includes('auth') || errorMessage.includes('subscription') || 
+                          errorMessage.includes('YouTube channel') || errorMessage.includes('sign in');
+      
       announcement.textContent = '❌ AI Sort failed. Please try again.';
       announcement.style.cssText = `
         position: fixed;
@@ -865,9 +972,21 @@ const HeaderAISort: React.FC = () => {
         z-index: 10000;
       `;
       document.body.appendChild(announcement);
-      setTimeout(() => announcement.remove(), 3000);
+      
+      setTimeout(() => {
+        announcement.remove();
+        // If it's an auth/subscription error, show paywall modal
+        if (isAuthError) {
+          showPaywallModal();
+        }
+      }, 3000);
     } finally {
-      setButtonState('READY');
+      // Only set to READY if authenticated, otherwise LOCKED
+      if (isAuthenticated && hasSubscription) {
+        setButtonState('READY');
+      } else {
+        setButtonState('LOCKED');
+      }
     }
   };
 

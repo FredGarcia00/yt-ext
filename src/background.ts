@@ -58,11 +58,6 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     return true;
   }
   
-  // OAuth testing
-  if (request.type === 'testOAuth') {
-    testOAuthConfiguration(sendResponse);
-    return true;
-  }
   
   // Legacy handlers
   if (request.type === 'checkSubscription') {
@@ -82,11 +77,27 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
  */
 async function handleServerValidatedAuth(request: any, sendResponse: any) {
   try {
+    // Check if extension context is still valid
+    if (!chrome.runtime.id) {
+      console.error('BG: [AUTH] Extension context invalidated');
+      sendResponse({
+        success: false,
+        error: 'Extension context invalidated. Please refresh the page and try again.'
+      });
+      return;
+    }
+    
     console.log('BG: [AUTH] Starting per-channel authentication');
+    console.log('BG: [AUTH] Request data:', {
+      type: request.type,
+      hasChannelId: !!request.currentPageChannelId,
+      channelId: request.currentPageChannelId ? request.currentPageChannelId.substring(0, 10) + '...' : 'none'
+    });
     
     // Get the current page's channel ID from the request
     const currentPageChannelId = request.currentPageChannelId;
     if (!currentPageChannelId) {
+      console.warn('BG: [AUTH] No channel ID provided in request');
       sendResponse({
         success: false,
         error: 'Cannot detect YouTube channel on current page. Please navigate to a YouTube channel page or video.'
@@ -111,7 +122,7 @@ async function handleServerValidatedAuth(request: any, sendResponse: any) {
       clearTimeout(timeoutId);
       sendResponse({
         success: false,
-        error: 'Failed to get authentication token from Chrome'
+        error: 'Authentication failed. Please try signing out of Chrome and signing back in, then re-authenticate.'
       });
       return;
     }
@@ -120,17 +131,18 @@ async function handleServerValidatedAuth(request: any, sendResponse: any) {
     const userEmail = await getChromeAccountEmail(token);
     if (!userEmail) {
       clearTimeout(timeoutId);
+      // This means the token doesn't have proper permissions
       sendResponse({
         success: false,
-        error: 'Failed to get user email from OAuth token'
+        error: 'Google account permissions missing. Please sign out of Chrome, sign back in with your Google account, and ensure you grant all requested permissions.'
       });
       return;
     }
     
     console.log('BG: [AUTH] User email:', userEmail);
     
-    // Step 3: Send data to server - server will determine channel ID using YouTube API
-    const validationResult = await validateTokenWithServer(token, userEmail);
+    // Step 3: Validate subscription using email and current page channel
+    const validationResult = await validateTokenWithServer(userEmail, currentPageChannelId);
     
     if (!validationResult.success) {
       console.error('BG: [AUTH] Server validation failed:', validationResult.error);
@@ -142,43 +154,19 @@ async function handleServerValidatedAuth(request: any, sendResponse: any) {
       return;
     }
 
-    // Step 4: CRITICAL - Check if OAuth channel matches current page channel
-    const oauthChannelId = validationResult.channelId;
+    console.log('BG: [AUTH] ✅ Using simplified email-based validation - no channel matching required');
     
-    console.log('BG: [AUTH] Channel comparison:');
-    console.log('  - Current page channel:', currentPageChannelId);
-    console.log('  - OAuth token channel:', oauthChannelId);
-    
-    if (currentPageChannelId !== oauthChannelId) {
-      console.warn('BG: [AUTH] ACCOUNT BLEEDING PREVENTED - Channel mismatch detected');
-      
-      clearTimeout(timeoutId);
-      sendResponse({
-        success: false,
-        error: `Account mismatch: You're on channel ${currentPageChannelId.substring(0, 10)}... but signed into Google account for channel ${oauthChannelId.substring(0, 10)}... Please switch to the matching YouTube account or use a different browser profile.`,
-        accountBleeding: true,
-        currentPageChannel: currentPageChannelId,
-        oauthChannel: oauthChannelId
-      });
-      return;
-    }
-
-    console.log('BG: [AUTH] ✅ Channel match confirmed - No account bleeding');
-    
-    // Step 5: Store authentication data per channel
-    const authenticatedChannels = await getAuthenticatedChannels();
-    authenticatedChannels[currentPageChannelId] = {
+    // Step 5: Store authentication data per email (not per channel)
+    const authenticatedEmails = await getAuthenticatedEmails();
+    authenticatedEmails[userEmail] = {
       email: validationResult.email,
-      channelId: validationResult.channelId,
-      channelName: validationResult.channelName || 'YouTube Channel',
       hasSubscription: validationResult.hasSubscription,
       authenticatedAt: Date.now(),
       accessToken: token
     };
 
     await chrome.storage.local.set({
-      authenticated_channels: authenticatedChannels,
-      current_page_channel: currentPageChannelId
+      authenticated_emails: authenticatedEmails
     });
     
     clearTimeout(timeoutId);
@@ -212,51 +200,126 @@ async function handleServerValidatedAuth(request: any, sendResponse: any) {
 async function getChromeOAuthToken(): Promise<string | null> {
   return new Promise((resolve) => {
     
-    // Use chrome.identity.getAuthToken with minimal parameters
-    // Any extra parameters might trigger third-party interceptors
+    console.log('BG: [SERVER_AUTH] Attempting to get Chrome OAuth token');
+    console.log('BG: [SERVER_AUTH] Extension ID:', chrome.runtime.id);
+    
+    // Check if extension context is valid
+    if (!chrome.runtime.id) {
+      console.error('BG: [SERVER_AUTH] Extension context invalidated during token request');
+      resolve(null);
+      return;
+    }
+    
+    // First, try to get a token normally (might be cached)
     chrome.identity.getAuthToken({
-      interactive: true
-    }, (result) => {
-      if (chrome.runtime.lastError) {
-        console.error('BG: [SERVER_AUTH] Chrome OAuth error:', chrome.runtime.lastError.message);
+      interactive: false  // Non-interactive first to check cache
+    }, async (cachedToken) => {
+      // If we got a cached token, validate it first
+      if (cachedToken && !chrome.runtime.lastError) {
+        console.log('BG: [SERVER_AUTH] Found cached token, validating...');
+        const tokenString = typeof cachedToken === 'string' ? cachedToken : cachedToken.token;
         
-        // If standard flow fails, try removing specific token and retry
-        const errorMessage = chrome.runtime.lastError.message || '';
-        if (errorMessage.includes('OAuth2') || 
-            errorMessage.includes('User') ||
-            errorMessage.includes('bad client')) {
+        if (tokenString) {
+          // Test if token works with userinfo endpoint
+          const isValid = await validateToken(tokenString);
+          if (isValid) {
+            console.log('BG: [SERVER_AUTH] Cached token is valid');
+            resolve(tokenString);
+            return;
+          }
           
-          // Try one more time with just the basic call
-          chrome.identity.getAuthToken({ interactive: true }, (retryResult) => {
-            if (chrome.runtime.lastError) {
-              console.error('BG: [SERVER_AUTH] Fallback also failed:', chrome.runtime.lastError.message);
-              resolve(null);
-            } else {
-              const token = typeof retryResult === 'string' ? retryResult : retryResult?.token;
-              if (token) {
-                resolve(token);
+          // Token is invalid, remove it
+          console.log('BG: [SERVER_AUTH] Cached token is invalid (401), removing...');
+          chrome.identity.removeCachedAuthToken({ token: tokenString }, () => {
+            console.log('BG: [SERVER_AUTH] Removed invalid cached token');
+          });
+        }
+      }
+      
+      // Now get a fresh token interactively
+      console.log('BG: [SERVER_AUTH] Requesting fresh token interactively...');
+      chrome.identity.getAuthToken({
+        interactive: true
+      }, async (freshToken) => {
+        if (chrome.runtime.lastError) {
+          const errorMessage = chrome.runtime.lastError.message || '';
+          console.error('BG: [SERVER_AUTH] Chrome OAuth error:', errorMessage);
+          
+          // If user cancelled, don't retry
+          if (errorMessage.includes('cancelled') || errorMessage.includes('denied')) {
+            console.log('BG: [SERVER_AUTH] User cancelled authentication');
+            resolve(null);
+            return;
+          }
+          
+          // For other errors, try one more time after clearing
+          console.log('BG: [SERVER_AUTH] Attempting final retry after error...');
+          chrome.identity.clearAllCachedAuthTokens(() => {
+            chrome.identity.getAuthToken({ interactive: true }, (retryToken) => {
+              if (chrome.runtime.lastError) {
+                console.error('BG: [SERVER_AUTH] Final retry failed:', chrome.runtime.lastError.message);
+                resolve(null);
+              } else if (retryToken) {
+                const retryTokenString = typeof retryToken === 'string' ? retryToken : retryToken.token;
+                console.log('BG: [SERVER_AUTH] Retry successful');
+                resolve(retryTokenString || null);
               } else {
                 resolve(null);
               }
-            }
+            });
           });
-        } else {
+        } else if (!freshToken) {
+          console.error('BG: [SERVER_AUTH] No token returned from Chrome identity');
           resolve(null);
-        }
-      } else if (!result) {
-        console.error('BG: [SERVER_AUTH] No token returned from Chrome identity');
-        resolve(null);
-      } else {
-        const token = typeof result === 'string' ? result : result.token;
-        if (token) {
-          resolve(token);
         } else {
-          console.error('BG: [SERVER_AUTH] Invalid token format');
-          resolve(null);
+          // Validate the fresh token
+          console.log('BG: [SERVER_AUTH] Got fresh token, validating...');
+          const freshTokenString = typeof freshToken === 'string' ? freshToken : freshToken.token;
+          
+          if (freshTokenString) {
+            const isValid = await validateToken(freshTokenString);
+            
+            if (isValid) {
+              console.log('BG: [SERVER_AUTH] Fresh token is valid');
+              resolve(freshTokenString);
+            } else {
+              console.error('BG: [SERVER_AUTH] Fresh token failed validation');
+              // Remove the bad token
+              chrome.identity.removeCachedAuthToken({ token: freshTokenString }, () => {
+                console.log('BG: [SERVER_AUTH] Removed invalid fresh token');
+                resolve(null);
+              });
+            }
+          } else {
+            console.error('BG: [SERVER_AUTH] Invalid fresh token format');
+            resolve(null);
+          }
         }
-      }
+      });
     });
   });
+}
+
+/**
+ * Validate OAuth token by testing it with userinfo endpoint
+ */
+async function validateToken(token: string): Promise<boolean> {
+  try {
+    const response = await fetch('https://www.googleapis.com/oauth2/v1/userinfo', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    
+    if (response.ok) {
+      console.log('BG: [TOKEN_VALIDATION] Token is valid (status 200)');
+      return true;
+    } else {
+      console.error('BG: [TOKEN_VALIDATION] Token validation failed:', response.status);
+      return false;
+    }
+  } catch (error) {
+    console.error('BG: [TOKEN_VALIDATION] Error validating token:', error);
+    return false;
+  }
 }
 
 /**
@@ -299,77 +362,16 @@ async function getChromeAccountEmail(token: string): Promise<string | null> {
  * Step 3: Check subscription status via verify-subscription
  * This prevents account bleeding by using token-based channel detection
  */
-async function validateTokenWithServer(accessToken: string, email: string): Promise<any> {
+async function validateTokenWithServer(email: string, currentPageChannelId: string): Promise<any> {
   try {
-    console.log('BG: [AUTH] Starting authentication flow with YouTube API');
+    console.log('BG: [AUTH] Starting simplified email-based authentication');
+    console.log('BG: [AUTH] Email:', email);
+    console.log('BG: [AUTH] Page Channel ID:', currentPageChannelId);
     
-    // Step 1: Get YouTube channel info directly from YouTube API using the OAuth token
-    // This determines which YouTube channel actually owns this OAuth token
-    const YOUTUBE_API_KEY = 'AIzaSyBwFhz2sJg6nYPnBlgAI1nxhB1VdYpWmUk';
-    console.log('BG: [AUTH] Step 1 - Getting YouTube channel from token via YouTube API');
-    
-    const youtubeResponse = await fetch(
-      `https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true&key=${YOUTUBE_API_KEY}`,
-      {
-        headers: { 
-          'Authorization': `Bearer ${accessToken}`
-        }
-      }
-    );
-    
-    if (!youtubeResponse.ok) {
-      const errorText = await youtubeResponse.text();
-      console.error('BG: [AUTH] YouTube API failed:', errorText);
-      throw new Error(`YouTube API failed: ${youtubeResponse.status}`);
-    }
-    
-    const youtubeData = await youtubeResponse.json();
-    
-    if (!youtubeData.items || youtubeData.items.length === 0) {
-      console.error('BG: [AUTH] No YouTube channel found for this token');
-      throw new Error('No YouTube channel associated with this account');
-    }
-    
-    const channel = youtubeData.items[0];
-    const channelId = channel.id;
-    const channelName = channel.snippet.title;
-    
-    console.log('BG: [AUTH] YouTube channel detected:', {
-      channelId: channelId,
-      channelName: channelName
-    });
-    
-    // Step 2: Send complete authentication data to Supabase
-    const authEndpoint = `${SUPABASE_CONFIG.URL}/functions/v1/authenticate-youtube-channel`;
-    
-    console.log('BG: [AUTH] Step 2 - Authenticating with Supabase');
-    const authResponse = await fetch(authEndpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_CONFIG.ANON_KEY}`
-      },
-      body: JSON.stringify({
-        email: email,
-        youtubeChannelId: channelId,  // From YouTube API
-        channelName: channelName,      // From YouTube API
-        accessToken: accessToken
-      })
-    });
-    
-    if (!authResponse.ok) {
-      const errorText = await authResponse.text();
-      console.error('BG: [AUTH] Supabase authentication failed:', errorText);
-      throw new Error(`Authentication failed: ${authResponse.status}`);
-    }
-    
-    await authResponse.json(); // Consume response body
-    console.log('BG: [AUTH] Supabase authentication successful');
-    
-    // Step 3: Check subscription for the authenticated email
+    // Step 1: Check subscription for the email directly
     const subEndpoint = `${SUPABASE_CONFIG.URL}/functions/v1/verify-subscription`;
     
-    console.log('BG: [AUTH] Step 3 - Checking subscription for:', email);
+    console.log('BG: [AUTH] Step 1 - Checking subscription for:', email);
     const subResponse = await fetch(subEndpoint, {
       method: 'POST',
       headers: {
@@ -381,23 +383,52 @@ async function validateTokenWithServer(accessToken: string, email: string): Prom
       })
     });
     
+    console.log('BG: [AUTH] Subscription check response status:', subResponse.status);
+    
     let hasSubscription = false;
     if (subResponse.ok) {
       const subData = await subResponse.json();
       hasSubscription = Boolean(subData.hasSubscription);
       console.log('BG: [AUTH] Subscription status:', hasSubscription);
+      console.log('BG: [AUTH] Subscription data:', subData);
     } else {
-      console.warn('BG: [AUTH] Subscription check failed, defaulting to false');
+      const subErrorText = await subResponse.text();
+      console.warn('BG: [AUTH] Subscription check failed with status:', subResponse.status);
+      console.warn('BG: [AUTH] Subscription error response:', subErrorText);
+      console.warn('BG: [AUTH] Defaulting subscription to false');
     }
     
-    // Return combined result with actual YouTube channel data
-    return {
-      success: true,
-      channelId: channelId,      // From YouTube API - this is the authoritative channel
-      channelName: channelName,  // From YouTube API
-      email: email,
-      hasSubscription: hasSubscription
-    };
+    // Step 2: If user has subscription, allow access to any YouTube channel they're viewing
+    if (hasSubscription) {
+      console.log('BG: [AUTH] ✅ User has valid subscription - granting access to current channel');
+      
+      // Optional: Test backend functions to ensure they work with this email + channel combo
+      const usageEndpoint = `${SUPABASE_CONFIG.URL}/functions/v1/track-ai-usage?email=${encodeURIComponent(email)}&youtubeChannelId=${encodeURIComponent(currentPageChannelId)}&operation=check`;
+      const usageResponse = await fetch(usageEndpoint, {
+        headers: {
+          'Authorization': `Bearer ${SUPABASE_CONFIG.ANON_KEY}`
+        }
+      });
+      
+      console.log('BG: [AUTH] Backend validation test status:', usageResponse.status);
+      
+      return {
+        success: true,
+        channelId: currentPageChannelId,    // Use the page channel they're viewing
+        channelName: 'YouTube Channel',     // Generic name since we don't need API
+        email: email,
+        hasSubscription: hasSubscription
+      };
+    } else {
+      console.log('BG: [AUTH] ❌ User does not have valid subscription');
+      return {
+        success: true, // Don't fail auth, just mark as no subscription
+        channelId: currentPageChannelId,
+        channelName: 'YouTube Channel',
+        email: email,
+        hasSubscription: false
+      };
+    }
     
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Authentication failed';
@@ -411,41 +442,56 @@ async function validateTokenWithServer(accessToken: string, email: string): Prom
 }
 
 /**
- * Get authenticated channels from storage
+ * Get authenticated emails from storage
  */
-async function getAuthenticatedChannels(): Promise<Record<string, any>> {
+async function getAuthenticatedEmails(): Promise<Record<string, any>> {
   try {
-    const result = await chrome.storage.local.get(['authenticated_channels']);
-    return result.authenticated_channels || {};
+    const result = await chrome.storage.local.get(['authenticated_emails']);
+    return result.authenticated_emails || {};
   } catch (error) {
-    console.error('BG: [AUTH] Error getting authenticated channels:', error);
+    console.error('BG: [AUTH] Error getting authenticated emails:', error);
     return {};
   }
 }
 
 /**
- * Check current authentication status for a specific channel
+ * Check current authentication status based on email (not channel)
  */
 async function checkAuthenticationStatus(request: any, sendResponse: any) {
   try {
-    const currentPageChannelId = request.currentPageChannelId;
+    console.log('BG: [AUTH] Checking authentication status using email-based lookup');
     
-    if (!currentPageChannelId) {
+    // Step 1: Get current browser's email from OAuth token
+    const token = await getChromeOAuthToken();
+    if (!token) {
+      console.log('BG: [AUTH] No OAuth token available');
       sendResponse({
         success: true,
         authenticated: false,
-        error: 'No channel detected on current page'
+        error: 'No authentication token available'
+      });
+      return;
+    }
+
+    const userEmail = await getChromeAccountEmail(token);
+    if (!userEmail) {
+      console.log('BG: [AUTH] Could not get user email from token');
+      sendResponse({
+        success: true,
+        authenticated: false,
+        error: 'Could not determine user email'
       });
       return;
     }
     
-    console.log('BG: [AUTH] Checking auth status for channel:', currentPageChannelId);
+    console.log('BG: [AUTH] Checking auth for email:', userEmail);
     
-    const authenticatedChannels = await getAuthenticatedChannels();
-    const channelAuth = authenticatedChannels[currentPageChannelId];
+    // Step 2: Look up authentication by email
+    const authenticatedEmails = await getAuthenticatedEmails();
+    const emailAuth = authenticatedEmails[userEmail];
     
-    if (!channelAuth) {
-      console.log('BG: [AUTH] No authentication found for channel:', currentPageChannelId);
+    if (!emailAuth) {
+      console.log('BG: [AUTH] No authentication found for email:', userEmail);
       sendResponse({
         success: true,
         authenticated: false
@@ -453,16 +499,16 @@ async function checkAuthenticationStatus(request: any, sendResponse: any) {
       return;
     }
     
-    // Check if authentication is still fresh (24 hours)
-    const authAge = Date.now() - (channelAuth.authenticatedAt || 0);
+    // Step 3: Check if authentication is still fresh (24 hours)
+    const authAge = Date.now() - (emailAuth.authenticatedAt || 0);
     const isExpired = authAge > (24 * 60 * 60 * 1000); // 24 hours
     
     if (isExpired) {
-      console.log('BG: [AUTH] Authentication expired for channel:', currentPageChannelId);
+      console.log('BG: [AUTH] Authentication expired for email:', userEmail);
       
       // Remove expired auth
-      delete authenticatedChannels[currentPageChannelId];
-      await chrome.storage.local.set({ authenticated_channels: authenticatedChannels });
+      delete authenticatedEmails[userEmail];
+      await chrome.storage.local.set({ authenticated_emails: authenticatedEmails });
       
       sendResponse({
         success: true,
@@ -472,16 +518,19 @@ async function checkAuthenticationStatus(request: any, sendResponse: any) {
       return;
     }
     
-    console.log('BG: [AUTH] Valid authentication found for channel:', currentPageChannelId);
-    console.log('BG: [AUTH] Subscription status:', channelAuth.hasSubscription);
+    console.log('BG: [AUTH] Valid authentication found for email:', userEmail);
+    console.log('BG: [AUTH] Subscription status:', emailAuth.hasSubscription);
+    
+    // Return authentication info (channel ID from current page for UI purposes)
+    const currentPageChannelId = request.currentPageChannelId || 'unknown';
     
     sendResponse({
       success: true,
       authenticated: true,
-      email: channelAuth.email,
-      channelId: channelAuth.channelId,
-      channelName: channelAuth.channelName,
-      hasSubscription: Boolean(channelAuth.hasSubscription)
+      email: emailAuth.email,
+      channelId: currentPageChannelId, // Use current page channel for UI
+      channelName: 'YouTube Channel',
+      hasSubscription: Boolean(emailAuth.hasSubscription)
     });
     
   } catch (error) {
@@ -555,7 +604,7 @@ async function handleCheckUsageLimits(sendResponse: any) {
     const usage = result.aiUsage || {};
     
     const dailyUsage = usage[today] || 0;
-    const dailyLimit = 50; // Example limit
+    const dailyLimit = 50;
     
     sendResponse({ 
       success: true, 
@@ -616,113 +665,3 @@ chrome.runtime.onSuspend.addListener(() => {
   stopKeepAlive();
 });
 
-/**
- * OAuth Configuration Test
- * Simple test to verify Chrome identity API works with current config
- */
-async function testOAuthConfiguration(sendResponse: any) {
-  try {
-    
-    // Test getting token without interaction first (silent)
-    const silentToken = await testGetToken(false);
-    
-    if (silentToken) {
-      
-      // Test getting user info with the token
-      const userInfo = await testGetUserInfo(silentToken);
-      
-      sendResponse({
-        success: true,
-        hasToken: true,
-        tokenLength: silentToken.length,
-        userInfo: userInfo,
-        extensionId: chrome.runtime.id
-      });
-      return;
-    }
-    
-    const interactiveToken = await testGetToken(true);
-    
-    if (interactiveToken) {
-      
-      const userInfo = await testGetUserInfo(interactiveToken);
-      
-      sendResponse({
-        success: true,
-        hasToken: true,
-        tokenLength: interactiveToken.length,
-        userInfo: userInfo,
-        extensionId: chrome.runtime.id
-      });
-    } else {
-      console.error('BG: [OAUTH_TEST] ❌ Failed to get OAuth token');
-      sendResponse({
-        success: false,
-        error: 'Failed to get OAuth token - check Google Cloud Console configuration',
-        extensionId: chrome.runtime.id
-      });
-    }
-    
-  } catch (error) {
-    console.error('BG: [OAUTH_TEST] ❌ OAuth test failed:', error);
-    sendResponse({
-      success: false,
-      error: error instanceof Error ? error.message : 'OAuth test failed',
-      extensionId: chrome.runtime.id
-    });
-  }
-}
-
-/**
- * Test token retrieval
- */
-async function testGetToken(interactive: boolean): Promise<string | null> {
-  return new Promise((resolve) => {
-    chrome.identity.getAuthToken({
-      interactive: interactive
-    }, (result) => {
-      if (chrome.runtime.lastError) {
-        resolve(null);
-      } else if (!result) {
-        resolve(null);
-      } else {
-        const token = typeof result === 'string' ? result : result.token;
-        if (token) {
-          resolve(token);
-        } else {
-          resolve(null);
-        }
-      }
-    });
-  });
-}
-
-/**
- * Test getting user info with token
- */
-async function testGetUserInfo(token: string): Promise<any> {
-  try {
-    
-    const response = await fetch('https://www.googleapis.com/oauth2/v1/userinfo', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    
-    if (!response.ok) {
-      console.error('BG: [OAUTH_TEST] User info request failed:', response.status);
-      return null;
-    }
-    
-    const userInfo = await response.json();
-    
-    return {
-      email: userInfo.email,
-      verified_email: userInfo.verified_email,
-      name: userInfo.name,
-      picture: userInfo.picture
-    };
-    
-  } catch (error) {
-    console.error('BG: [OAUTH_TEST] Error getting user info:', error);
-    return null;
-  }
-}

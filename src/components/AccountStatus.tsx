@@ -157,7 +157,7 @@ const AccountStatus: React.FC<AccountStatusProps> = ({ onClose, isInline = false
         </p>
         
         <div style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 30px;">
-          <button onclick="window.open('https://buy.stripe.com/test_00weV6f5d6rh3Ii9nVdZ601', '_blank')" style="
+          <button onclick="window.open('https://buy.stripe.com/00weV6f5d6rh3Ii9nVdZ601', '_blank')" style="
             background: #10b981;
             color: white;
             border: none;
@@ -432,7 +432,7 @@ const AccountStatus: React.FC<AccountStatusProps> = ({ onClose, isInline = false
             }}>
               Your subscription has expired. 
               <button
-                onClick={() => window.open('https://buy.stripe.com/test_00weV6f5d6rh3Ii9nVdZ601', '_blank')}
+                onClick={() => window.open('https://buy.stripe.com/00weV6f5d6rh3Ii9nVdZ601', '_blank')}
                 style={{
                   marginLeft: '8px',
                   color: '#6d28d9',
